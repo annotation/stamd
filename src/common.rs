@@ -25,7 +25,9 @@ impl IntoResponse for ApiResponse {
 #[derive(Debug)]
 pub enum ApiError {
     MissingArgument(&'static str),
+    InternalError(&'static str),
     NotFound(&'static str),
+    PermissionDenied(&'static str),
     StamError(StamError),
 }
 
@@ -48,6 +50,14 @@ impl Serialize for ApiError {
                     state.serialize_field("name", "NotFound")?;
                     state.serialize_field("message", s)?;
                 }
+                Self::PermissionDenied(s) => {
+                    state.serialize_field("name", "PermissionDenied")?;
+                    state.serialize_field("message", s)?;
+                }
+                Self::InternalError(s) => {
+                    state.serialize_field("name", "InternalError")?;
+                    state.serialize_field("message", s)?;
+                }
                 Self::StamError(_) => unreachable!("Already handled"),
             }
             state.end()
@@ -57,6 +67,11 @@ impl Serialize for ApiError {
 
 impl IntoResponse for ApiError {
     fn into_response(self) -> Response {
-        (StatusCode::NOT_FOUND, Json(self)).into_response()
+        let statuscode = match self {
+            Self::InternalError(..) => StatusCode::INTERNAL_SERVER_ERROR,
+            Self::PermissionDenied(..) => StatusCode::FORBIDDEN,
+            _ => StatusCode::NOT_FOUND,
+        };
+        (statuscode, Json(self)).into_response()
     }
 }
