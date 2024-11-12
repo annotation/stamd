@@ -12,6 +12,11 @@ use std::collections::BTreeMap;
 use std::collections::HashMap;
 use std::sync::Arc;
 
+mod common;
+mod multistore;
+use common::{ApiError, ApiResponse};
+use multistore::MultiStore;
+
 pub const VERSION: &'static str = env!("CARGO_PKG_VERSION");
 
 #[derive(Parser, Debug)]
@@ -25,41 +30,6 @@ struct Args {
 
 struct SharedState {
     store: AnnotationStore,
-}
-
-#[derive(Debug)]
-enum ApiResponse {
-    Text(String),
-    Results(Vec<BTreeMap<String, String>>),
-}
-
-impl IntoResponse for ApiResponse {
-    fn into_response(self) -> Response {
-        match self {
-            Self::Text(s) => (StatusCode::OK, s).into_response(),
-            Self::Results(data) => (StatusCode::OK, Json(data)).into_response(),
-        }
-    }
-}
-
-#[derive(Debug)]
-enum ApiError {
-    MissingArgument(&'static str),
-    StamError(StamError),
-}
-
-impl IntoResponse for ApiError {
-    fn into_response(self) -> Response {
-        //TODO: return a generic JSON structure for errors
-        match self {
-            Self::MissingArgument(s) => {
-                (StatusCode::NOT_FOUND, format!("Missing argument: {s}")).into_response()
-            }
-            Self::StamError(e) => {
-                (StatusCode::NOT_FOUND, format!("STAM Error: {e}")).into_response()
-            }
-        }
-    }
 }
 
 #[tokio::main]

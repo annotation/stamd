@@ -15,6 +15,7 @@ keywords = [ "text-processing", "annotation", "linguistics", "standoff", "nlp"]
 [dependencies]
 axum = "0.7.7"
 clap = { version = "4.5.20", features = ["derive"] }
+serde = { version = "1.0.215", features = ["derive"] }
 stam = "0.16.4"
 stam-tools = "0.9.1"
 tokio = { version = "1.41.0", features = ["macros","rt-multi-thread"] }
