@@ -1,4 +1,7 @@
-use axum::{extract::Path, extract::Query, extract::State, routing::get, Router};
+use axum::{
+    body::Body, extract::Path, extract::Query, extract::State, http::HeaderValue, http::Request,
+    routing::get, Router,
+};
 use clap::Parser;
 use stam::{Config, QueryIter, StamError};
 use std::collections::BTreeMap;
@@ -16,6 +19,7 @@ use multistore::StorePool;
 
 pub const VERSION: &'static str = env!("CARGO_PKG_VERSION");
 const FLUSH_INTERVAL: Duration = Duration::from_secs(60);
+const CONTENT_TYPE_JSON: &'static str = "application/json";
 
 #[derive(Parser, Debug)]
 struct Args {
@@ -150,18 +154,24 @@ async fn query(
     Path(store_id): Path<String>,
     Query(params): Query<HashMap<String, String>>,
     storepool: State<Arc<StorePool>>,
+    request: Request<Body>,
 ) -> Result<ApiResponse, ApiError> {
+    let accept_type = request
+        .headers()
+        .get(axum::http::header::ACCEPT)
+        .map(|s| s.to_str().unwrap_or(CONTENT_TYPE_JSON))
+        .unwrap_or(CONTENT_TYPE_JSON);
     if let Some(querystring) = params.get("query") {
         let (query, _) = stam::Query::parse(querystring)?;
         if query.querytype().readonly() {
             storepool.map(&store_id, |store| match store.query(query) {
                 Err(err) => Err(ApiError::StamError(err)),
-                Ok(queryiter) => query_results(queryiter),
+                Ok(queryiter) => query_results(queryiter, accept_type),
             })
         } else {
             storepool.map_mut(&store_id, |store| match store.query_mut(query) {
                 Err(err) => Err(ApiError::StamError(err)),
-                Ok(queryiter) => query_results(queryiter),
+                Ok(queryiter) => query_results(queryiter, accept_type),
             })
         }
     } else {
@@ -169,19 +179,26 @@ async fn query(
     }
 }
 
-fn query_results(queryiter: QueryIter) -> Result<ApiResponse, ApiError> {
-    let mut ser_results = Vec::new();
-    for resultitems in queryiter {
-        let mut responsemap = BTreeMap::new();
-        for (i, (result, name)) in resultitems.iter().zip(resultitems.names()).enumerate() {
-            responsemap.insert(
-                name.map(|s| s.to_string()).unwrap_or(format!("{i}")),
-                result.to_json_string()?,
-            );
+fn query_results(queryiter: QueryIter, accept_type: &str) -> Result<ApiResponse, ApiError> {
+    match accept_type {
+        CONTENT_TYPE_JSON => {
+            let mut ser_results = Vec::new();
+            for resultitems in queryiter {
+                let mut responsemap = BTreeMap::new();
+                for (i, (result, name)) in resultitems.iter().zip(resultitems.names()).enumerate() {
+                    responsemap.insert(
+                        name.map(|s| s.to_string()).unwrap_or(format!("{i}")),
+                        result.to_json_string()?,
+                    );
+                }
+                ser_results.push(responsemap);
+            }
+            Ok(ApiResponse::Results(ser_results))
         }
-        ser_results.push(responsemap);
+        _ => Err(ApiError::NotAcceptable(
+            "Requested accept type can not be accommodated (try application/json instead)",
+        )),
     }
-    Ok(ApiResponse::Results(ser_results))
 }
 
 impl From<StamError> for ApiError {

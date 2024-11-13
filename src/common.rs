@@ -27,6 +27,7 @@ pub enum ApiError {
     MissingArgument(&'static str),
     InternalError(&'static str),
     NotFound(&'static str),
+    NotAcceptable(&'static str),
     PermissionDenied(&'static str),
     StamError(StamError),
 }
@@ -50,6 +51,10 @@ impl Serialize for ApiError {
                     state.serialize_field("name", "NotFound")?;
                     state.serialize_field("message", s)?;
                 }
+                Self::NotAcceptable(s) => {
+                    state.serialize_field("name", "NotAcceptable")?;
+                    state.serialize_field("message", s)?;
+                }
                 Self::PermissionDenied(s) => {
                     state.serialize_field("name", "PermissionDenied")?;
                     state.serialize_field("message", s)?;
@@ -70,6 +75,7 @@ impl IntoResponse for ApiError {
         let statuscode = match self {
             Self::InternalError(..) => StatusCode::INTERNAL_SERVER_ERROR,
             Self::PermissionDenied(..) => StatusCode::FORBIDDEN,
+            Self::NotAcceptable(..) => StatusCode::NOT_ACCEPTABLE,
             _ => StatusCode::NOT_FOUND,
         };
         (statuscode, Json(self)).into_response()
