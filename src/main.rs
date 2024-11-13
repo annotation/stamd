@@ -156,22 +156,17 @@ async fn query(
     storepool: State<Arc<StorePool>>,
     request: Request<Body>,
 ) -> Result<ApiResponse, ApiError> {
-    let accept_type = request
-        .headers()
-        .get(axum::http::header::ACCEPT)
-        .map(|s| s.to_str().unwrap_or(CONTENT_TYPE_JSON))
-        .unwrap_or(CONTENT_TYPE_JSON);
     if let Some(querystring) = params.get("query") {
         let (query, _) = stam::Query::parse(querystring)?;
         if query.querytype().readonly() {
             storepool.map(&store_id, |store| match store.query(query) {
                 Err(err) => Err(ApiError::StamError(err)),
-                Ok(queryiter) => query_results(queryiter, accept_type),
+                Ok(queryiter) => query_results(queryiter, &request),
             })
         } else {
             storepool.map_mut(&store_id, |store| match store.query_mut(query) {
                 Err(err) => Err(ApiError::StamError(err)),
-                Ok(queryiter) => query_results(queryiter, accept_type),
+                Ok(queryiter) => query_results(queryiter, &request),
             })
         }
     } else {
@@ -179,9 +174,42 @@ async fn query(
     }
 }
 
-fn query_results(queryiter: QueryIter, accept_type: &str) -> Result<ApiResponse, ApiError> {
-    match accept_type {
-        CONTENT_TYPE_JSON => {
+fn negotiate_content_type(
+    request: &Request<Body>,
+    offer_types: &[&'static str],
+) -> Result<&'static str, ApiError> {
+    if let Some(accept_types) = request.headers().get(axum::http::header::ACCEPT) {
+        let mut matching_offer = None;
+        for accept_type in accept_types
+            .to_str()
+            .map_err(|_| ApiError::NotAcceptable("Invalid Accept header"))
+            .unwrap_or(CONTENT_TYPE_JSON)
+            .split(",")
+        {
+            let accept_type = accept_type.split(";").next().unwrap();
+            for (i, offer_type) in offer_types.iter().enumerate() {
+                if *offer_type == accept_type || accept_type == "*/*" {
+                    if matching_offer.is_none()
+                        || (matching_offer.is_some() && matching_offer.unwrap() > i)
+                    {
+                        matching_offer = Some(i);
+                    }
+                }
+            }
+        }
+        if let Some(matching_offer) = matching_offer {
+            Ok(offer_types[matching_offer])
+        } else {
+            Err(ApiError::NotAcceptable("No matching content type on offer"))
+        }
+    } else {
+        Ok(offer_types[0])
+    }
+}
+
+fn query_results(queryiter: QueryIter, request: &Request<Body>) -> Result<ApiResponse, ApiError> {
+    match negotiate_content_type(request, &[CONTENT_TYPE_JSON]) {
+        Ok(CONTENT_TYPE_JSON) => {
             let mut ser_results = Vec::new();
             for resultitems in queryiter {
                 let mut responsemap = BTreeMap::new();
