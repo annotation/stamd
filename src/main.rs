@@ -1,9 +1,8 @@
 use axum::{
     body::Body, extract::Path, extract::Query, extract::State, http::HeaderValue, http::Request,
-    routing::get, Router,
+    response::Html, routing::get, Router,
 };
 use clap::Parser;
-use stam::{Config, QueryIter, StamError};
 use std::collections::BTreeMap;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -11,6 +10,9 @@ use std::time::Duration;
 use tokio::signal;
 use tower_http::trace::TraceLayer;
 use tracing::{debug, error, Level};
+
+use stam::{Config, QueryIter, StamError};
+use stamtools::view::HtmlWriter;
 
 mod common;
 mod multistore;
@@ -20,6 +22,7 @@ use multistore::StorePool;
 pub const VERSION: &'static str = env!("CARGO_PKG_VERSION");
 const FLUSH_INTERVAL: Duration = Duration::from_secs(60);
 const CONTENT_TYPE_JSON: &'static str = "application/json";
+const CONTENT_TYPE_HTML: &'static str = "text/html";
 
 #[derive(Parser, Debug)]
 struct Args {
@@ -158,7 +161,15 @@ async fn query(
 ) -> Result<ApiResponse, ApiError> {
     if let Some(querystring) = params.get("query") {
         let (query, _) = stam::Query::parse(querystring)?;
-        if query.querytype().readonly() {
+        if let Ok(CONTENT_TYPE_HTML) =
+            negotiate_content_type(&request, &[CONTENT_TYPE_JSON, CONTENT_TYPE_HTML])
+        {
+            storepool.map(&store_id, |store| {
+                let htmlwriter = HtmlWriter::new(&store, query, None)
+                    .map_err(|e| ApiError::CustomNotFound(e))?;
+                Ok(ApiResponse::Html(htmlwriter.to_string()))
+            })
+        } else if query.querytype().readonly() {
             storepool.map(&store_id, |store| match store.query(query) {
                 Err(err) => Err(ApiError::StamError(err)),
                 Ok(queryiter) => query_results(queryiter, &request),

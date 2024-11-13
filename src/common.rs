@@ -1,6 +1,6 @@
 use axum::{
     http::StatusCode,
-    response::{IntoResponse, Json, Response},
+    response::{Html, IntoResponse, Json, Response},
 };
 use serde::ser::SerializeStruct;
 use serde::Serialize;
@@ -10,6 +10,7 @@ use std::collections::BTreeMap;
 #[derive(Debug)]
 pub enum ApiResponse {
     Text(String),
+    Html(String),
     Results(Vec<BTreeMap<String, String>>),
 }
 
@@ -17,6 +18,7 @@ impl IntoResponse for ApiResponse {
     fn into_response(self) -> Response {
         match self {
             Self::Text(s) => (StatusCode::OK, s).into_response(),
+            Self::Html(s) => (StatusCode::OK, Html(s)).into_response(),
             Self::Results(data) => (StatusCode::OK, Json(data)).into_response(),
         }
     }
@@ -27,6 +29,7 @@ pub enum ApiError {
     MissingArgument(&'static str),
     InternalError(&'static str),
     NotFound(&'static str),
+    CustomNotFound(String),
     NotAcceptable(&'static str),
     PermissionDenied(&'static str),
     StamError(StamError),
@@ -48,6 +51,10 @@ impl Serialize for ApiError {
                     state.serialize_field("message", s)?;
                 }
                 Self::NotFound(s) => {
+                    state.serialize_field("name", "NotFound")?;
+                    state.serialize_field("message", s)?;
+                }
+                Self::CustomNotFound(s) => {
                     state.serialize_field("name", "NotFound")?;
                     state.serialize_field("message", s)?;
                 }
