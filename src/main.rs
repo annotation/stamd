@@ -15,9 +15,13 @@ use tower_http::normalize_path::NormalizePathLayer;
 use tower_http::trace::TraceLayer;
 use tracing::{debug, error};
 
+use utoipa::OpenApi;
+use utoipa_swagger_ui::SwaggerUi;
+
 use stam::{Config, Offset, QueryIter, StamError, Text};
 use stamtools::view::HtmlWriter;
 
+mod apidocs;
 mod common;
 mod multistore;
 use common::{ApiError, ApiResponse};
@@ -79,6 +83,23 @@ struct Args {
     debug: bool,
 }
 
+#[derive(OpenApi)]
+#[openapi(
+    paths(
+        list_stores,
+        get_query,
+        get_annotation_list,
+        get_annotation,
+        get_resource_list,
+        get_resource,
+        get_textselection,
+    ),
+    tags(
+        (name = "stamd", description = "WebAPI for stam")
+    )
+)]
+pub struct ApiDoc;
+
 #[tokio::main]
 async fn main() {
     let args = Args::parse();
@@ -124,11 +145,12 @@ async fn main() {
         )
         .route("/resources/:store_id/:resource_id", get(get_resource))
         .route("/resources/:store_id", get(get_resource_list))
+        .merge(SwaggerUi::new("/swagger-ui").url("/api-doc/openapi.json", ApiDoc::openapi()))
         .layer(TraceLayer::new_for_http())
         .with_state(storepool.clone());
 
-    //allow trailing slashes as well:
-    let app = NormalizePathLayer::trim_trailing_slash().layer(app);
+    //allow trailing slashes as well: (conflicts with swagger-ui!)
+    //let app = NormalizePathLayer::trim_trailing_slash().layer(app);
 
     eprintln!("[stamd] listening on {}", args.bind);
     let listener = tokio::net::TcpListener::bind(args.bind).await.unwrap();
@@ -169,6 +191,14 @@ async fn shutdown_signal(storepool: Arc<StorePool>) {
     }
 }
 
+#[utoipa::path(
+    get,
+    path = "/",
+    responses(
+        (status = 200, body = [String], description = "Returns a simple list of all available annotation stores"),
+    )
+)]
+/// Runs all available annotation stores.
 async fn list_stores(
     storepool: State<Arc<StorePool>>,
     request: Request<Body>,
@@ -194,6 +224,29 @@ async fn list_stores(
     }
 }
 
+#[utoipa::path(
+    get,
+    path = "/query/{store}",
+    params(
+        ("store" = String, Path, description = "The identifier of the store"),
+        ("query" = String, Query, description = "A query in STAMQL, see <https://github.com/annotation/stam/tree/master/extensions/stam-query> for the syntax.", allow_reserved),
+        ("use" = Option<String>, Query, description = "Select a single variable from the query (by name, without '?' prefix), to constrain the result set accordingly.")
+    ),
+    responses(
+        (status = 200, description = "Query result. Several return types are supported via content negotation, but not all content types can be used for all queries. Most notably, the plain text type only works if the query produces a single item that holds text as result.",content(
+            ([BTreeMap<String,apidocs::StamJson>] = "application/json"),
+            ([apidocs::StamJson] = "application/json"),
+            (String = "text/html"),
+            (String = "text/plain"),
+        )),
+        (status = 406, body = apidocs::ApiError, description = "This is returned if the requested content-type (Accept) could not be delivered for your query.", content_type = "application/json"),
+        (status = 404, body = apidocs::StamError, description = "Return when the query is invalid or another error occurs", content_type = "application/json"),
+        (status = 404, body = apidocs::ApiError, description = "Returned with name `MissingArgument` if you forget the 'query' parameter", content_type = "application/json"),
+        (status = 404, body = apidocs::ApiError, description = "Returned with name `NotFound` if the store does not exist", content_type = "application/json"),
+        (status = 403, body = apidocs::ApiError, description = "Returned with name `PermissionDenied` when permission is denied, for instance when you send a query that edits the data but the store is configured as read-only", content_type = "application/json")
+    )
+)]
+/// Run a query on an annotation store. The query is formulated in STAMQL.
 async fn get_query(
     Path(store_id): Path<String>,
     Query(params): Query<HashMap<String, String>>,
@@ -232,6 +285,18 @@ async fn get_query(
     }
 }
 
+#[utoipa::path(
+    get,
+    path = "/annotations/{store}",
+    params(
+        ("store" = String, Path, description = "The identifier of the store"),
+    ),
+    responses(
+        (status = 200, body = [String], description = "Returns a simple list of all available annotations (IDs), for the given store"),
+        (status = 404, body = apidocs::ApiError, description = "Returned with name `NotFound` if the store does not exist", content_type = "application/json"),
+    )
+)]
+/// Returns the public identifiers of all available annotations in a given annotation store
 async fn get_annotation_list(
     Path(store_id): Path<String>,
     storepool: State<Arc<StorePool>>,
@@ -254,6 +319,18 @@ async fn get_annotation_list(
     })
 }
 
+#[utoipa::path(
+    get,
+    path = "/resources/{store}",
+    params(
+        ("store" = String, Path, description = "The identifier of the store"),
+    ),
+    responses(
+        (status = 200, body = [String], description = "Returns a simple list of all available resources (IDs), for the given store"),
+        (status = 404, body = apidocs::ApiError, description = "Returned with name `NotFound` if the store does not exist", content_type = "application/json"),
+    )
+)]
+/// Returns the public identifiers of all available resources in a given annotation store
 async fn get_resource_list(
     Path(store_id): Path<String>,
     storepool: State<Arc<StorePool>>,
@@ -276,6 +353,25 @@ async fn get_resource_list(
     })
 }
 
+#[utoipa::path(
+    get,
+    path = "/annotations/{store}/{annotation}",
+    params(
+        ("store" = String, Path, description = "The identifier of the store the annotation is in"),
+        ("annotation" = String, Path, description = "The identifier of the annotation"),
+    ),
+    responses(
+        (status = 200, description = "The annotation. Several return types are supported via content negotation.",content(
+            (apidocs::StamJson = "application/json"),
+            (apidocs::WebAnnotation = "application/ld+json"),
+            (String = "text/plain"),
+        )),
+        (status = 406, body = apidocs::ApiError, description = "This is returned if the requested content-type (Accept) could not be delivered", content_type = "application/json"),
+        (status = 404, body = apidocs::ApiError, description = "Returned with name `NotFound` if the store or annotation does not exist", content_type = "application/json"),
+        (status = 404, body = apidocs::StamError, description = "Returned when a STAM error occurs", content_type = "application/json"),
+    )
+)]
+/// Returns an annotation given its identifier
 async fn get_annotation(
     Path((store_id, annotation_id)): Path<(String, String)>,
     storepool: State<Arc<StorePool>>,
@@ -304,6 +400,24 @@ async fn get_annotation(
     })
 }
 
+#[utoipa::path(
+    get,
+    path = "/resources/{store}/{resource}",
+    params(
+        ("store" = String, Path, description = "The identifier of the store the resource is in"),
+        ("resource" = String, Path, description = "The identifier of the resource"),
+    ),
+    responses(
+        (status = 200, description = "The resource. Several return types are supported via content negotation.",content(
+            (apidocs::StamJson = "application/json"),
+            (String = "text/plain"),
+        )),
+        (status = 406, body = apidocs::ApiError, description = "This is returned if the requested content-type (Accept) could not be delivered", content_type = "application/json"),
+        (status = 404, body = apidocs::ApiError, description = "An ApiError with name 'NotFound` is returned if the store or resource does not exist", content_type = "application/json"),
+        (status = 404, body = apidocs::StamError, description = "Returned when a STAM error occurs", content_type = "application/json"),
+    )
+)]
+/// Returns a text resource given its identifier
 async fn get_resource(
     Path((store_id, resource_id)): Path<(String, String)>,
     storepool: State<Arc<StorePool>>,
@@ -323,6 +437,26 @@ async fn get_resource(
     })
 }
 
+#[utoipa::path(
+    get,
+    path = "/resources/{store}/{resource}/{begin}/{end}",
+    params(
+        ("store" = String, Path, description = "The identifier of the store the resource is in"),
+        ("resource" = String, Path, description = "The identifier of the resource"),
+        ("begin" = isize, Path, description = "An integer indicating the begin offset in unicode points (0-indexed). This may be a negative integer for end-aligned cursors."),
+        ("end" = isize, Path, description = "An integer indicating the non-inclusive end offset in unicode points (0-indexed). This may be a negative integer for end-aligned cursors. `-0` is a special value in this context, which means until the very end."),
+    ),
+    responses(
+        (status = 200, description = "The resource. Several return types are supported via content negotation.",content(
+            (apidocs::StamJson = "application/json"),
+            (String = "text/plain"),
+        )),
+        (status = 406, body = apidocs::ApiError, description = "This is returned if the requested content-type (Accept) could not be delivered", content_type = "application/json"),
+        (status = 404, body = apidocs::ApiError, description = "An ApiError with name 'NotFound` is returned if the store or resource does not exist", content_type = "application/json"),
+        (status = 404, body = apidocs::StamError, description = "Returned when a STAM error occurs, such as invalid offsets.", content_type = "application/json"),
+    )
+)]
+/// Returns an text selection given a resource identifier and an offset
 async fn get_textselection(
     Path((store_id, resource_id, begin, end)): Path<(String, String, String, String)>,
     storepool: State<Arc<StorePool>>,
