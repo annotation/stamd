@@ -190,26 +190,29 @@ fn negotiate_content_type(
     offer_types: &[&'static str],
 ) -> Result<&'static str, ApiError> {
     if let Some(accept_types) = request.headers().get(axum::http::header::ACCEPT) {
+        let mut match_accept_index = None;
         let mut matching_offer = None;
-        for accept_type in accept_types
+        for (i, accept_type) in accept_types
             .to_str()
             .map_err(|_| ApiError::NotAcceptable("Invalid Accept header"))
             .unwrap_or(CONTENT_TYPE_JSON)
             .split(",")
+            .enumerate()
         {
             let accept_type = accept_type.split(";").next().unwrap();
-            for (i, offer_type) in offer_types.iter().enumerate() {
+            for offer_type in offer_types.iter() {
                 if *offer_type == accept_type || accept_type == "*/*" {
-                    if matching_offer.is_none()
-                        || (matching_offer.is_some() && matching_offer.unwrap() > i)
+                    if match_accept_index.is_none()
+                        || (match_accept_index.is_some() && match_accept_index.unwrap() > i)
                     {
-                        matching_offer = Some(i);
+                        match_accept_index = Some(i);
+                        matching_offer = Some(*offer_type);
                     }
                 }
             }
         }
         if let Some(matching_offer) = matching_offer {
-            Ok(offer_types[matching_offer])
+            Ok(matching_offer)
         } else {
             Err(ApiError::NotAcceptable("No matching content type on offer"))
         }
