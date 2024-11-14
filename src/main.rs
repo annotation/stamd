@@ -1,6 +1,6 @@
 use axum::{
-    body::Body, extract::Path, extract::Query, extract::State, http::HeaderValue, http::Request,
-    response::Html, routing::get, Router, ServiceExt,
+    body::Body, extract::Path, extract::Query, extract::State, http::Request, routing::get, Router,
+    ServiceExt,
 };
 use clap::Parser;
 use stam::FindText;
@@ -13,7 +13,7 @@ use tokio::signal;
 use tower::layer::Layer;
 use tower_http::normalize_path::NormalizePathLayer;
 use tower_http::trace::TraceLayer;
-use tracing::{debug, error, Level};
+use tracing::{debug, error};
 
 use stam::{Config, Offset, QueryIter, StamError, Text};
 use stamtools::view::HtmlWriter;
