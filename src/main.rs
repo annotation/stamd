@@ -90,6 +90,7 @@ struct Args {
         list_stores,
         get_query,
         create_store,
+        create_resource,
         get_annotation_list,
         get_annotation,
         get_resource_list,
@@ -146,8 +147,9 @@ async fn main() {
             "/:store_id/resources/:resource_id/:begin/:end",
             get(get_textselection),
         )
-        .route("/:store_id/resources/:resource_id", get(get_resource))
         .route("/:store_id/resources", get(get_resource_list))
+        .route("/:store_id/resources/:resource_id", get(get_resource))
+        .route("/:store_id/resources/:resource_id", post(create_resource))
         .merge(SwaggerUi::new("/swagger-ui").url("/api-doc/openapi.json", ApiDoc::openapi()))
         .layer(TraceLayer::new_for_http())
         .with_state(storepool.clone());
@@ -241,6 +243,25 @@ async fn create_store(
     storepool: State<Arc<StorePool>>,
 ) -> Result<ApiResponse, ApiError> {
     storepool.new_store(&store_id)?;
+    Ok(ApiResponse::Created())
+}
+
+#[utoipa::path(
+    post,
+    path = "/{store_id}/resources/{resource_id}",
+    request_body(content_type = "text/plain", description = "The full text of the resource"),
+    responses(
+        (status = 201, description = "Returned when successfully created"),
+        (status = 403, body = apidocs::ApiError, description = "Returned with name `PermissionDenied` when permission is denied, for instance the store is configured as read-only or the resource already exists", content_type = "application/json")
+    )
+)]
+/// Create a new text resource, the request body contains the text.
+async fn create_resource(
+    Path((store_id, resource_id)): Path<(String, String)>,
+    storepool: State<Arc<StorePool>>,
+    text: String,
+) -> Result<ApiResponse, ApiError> {
+    storepool.new_resource(&store_id, &resource_id, text)?;
     Ok(ApiResponse::Created())
 }
 

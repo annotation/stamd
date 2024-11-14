@@ -1,5 +1,5 @@
 use crate::common::ApiError;
-use stam::{AnnotationStore, AssociatedFile, Config};
+use stam::{AnnotationStore, AssociatedFile, Config, TextResourceBuilder};
 use std::collections::HashMap;
 use std::path::{Component, Path, PathBuf};
 use std::sync::{Arc, RwLock};
@@ -141,6 +141,40 @@ impl StorePool {
                 return Err(ApiError::InternalError("Lock poisoned"));
             }
             Ok(())
+        }
+    }
+
+    /// Create a new text resource
+    pub fn new_resource(
+        &self,
+        store_id: &str,
+        resource_id: &str,
+        text: String,
+    ) -> Result<(), ApiError> {
+        if self.readonly {
+            return Err(ApiError::PermissionDenied("Service is readonly"));
+        }
+        self.check_basename(resource_id)?;
+        let filename: String = if resource_id.ends_with(".txt") {
+            resource_id.to_string()
+        } else {
+            format!("{}.txt", resource_id)
+        };
+        let filename_pb: PathBuf = filename.clone().into();
+        if filename_pb.exists() {
+            Err(ApiError::PermissionDenied("Resource already exists"))
+        } else {
+            self.map_mut(store_id, |store| {
+                store
+                    .add_resource(
+                        TextResourceBuilder::new()
+                            .with_id(resource_id)
+                            .with_text(text)
+                            .with_filename(filename),
+                    )
+                    .map(|_| ())
+                    .map_err(|e| ApiError::StamError(e))
+            })
         }
     }
 
