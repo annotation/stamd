@@ -37,7 +37,17 @@ impl IntoResponse for ApiResponse {
                 data,
             )
                 .into_response(),
-            Self::Json(data) => (StatusCode::OK, Json(data)).into_response(),
+            Self::Json(data) => (
+                StatusCode::OK,
+                [(
+                    header::CONTENT_TYPE,
+                    HeaderValue::from_static(
+                        "application/ld+json; profile=\"http://www.w3.org/ns/anno.jsonld\"",
+                    ),
+                )],
+                data,
+            )
+                .into_response(),
             Self::JsonList(data) => (StatusCode::OK, Json(data)).into_response(),
             Self::JsonMapList(data) => (StatusCode::OK, Json(data)).into_response(),
         }
