@@ -162,9 +162,10 @@ async fn query(
 ) -> Result<ApiResponse, ApiError> {
     if let Some(querystring) = params.get("query") {
         let (query, _) = stam::Query::parse(querystring)?;
-        if let Ok(CONTENT_TYPE_HTML) =
-            negotiate_content_type(&request, &[CONTENT_TYPE_JSON, CONTENT_TYPE_HTML])
-        {
+        if let Ok(CONTENT_TYPE_HTML) = negotiate_content_type(
+            &request,
+            &[CONTENT_TYPE_JSON, CONTENT_TYPE_HTML, CONTENT_TYPE_TEXT],
+        ) {
             storepool.map(&store_id, |store| {
                 let htmlwriter =
                     HtmlWriter::new(&store, query, params.get("use").map(|s| s.as_str()))
@@ -232,7 +233,7 @@ fn query_results(
     request: &Request<Body>,
     use_variable: Option<&str>,
 ) -> Result<ApiResponse, ApiError> {
-    match negotiate_content_type(request, &[CONTENT_TYPE_JSON]) {
+    match negotiate_content_type(request, &[CONTENT_TYPE_JSON, CONTENT_TYPE_TEXT]) {
         Ok(CONTENT_TYPE_JSON) => {
             if let Some(use_variable) = use_variable {
                 //output only one variable
@@ -260,6 +261,21 @@ fn query_results(
                 }
                 Ok(ApiResponse::MapResults(ser_results))
             }
+        }
+        Ok(CONTENT_TYPE_TEXT) => {
+            for (i, resultitems) in queryiter.enumerate() {
+                if i > 0 {
+                    return Err(ApiError::NotAcceptable(
+                        "Plain text can not be returned for queries with multiple results (try application/json instead)",
+                    ));
+                }
+                if let Ok(result) = resultitems.get_by_name_or_first(use_variable) {
+                    return Ok(ApiResponse::Text(result.text(Some(" "))?.to_string()));
+                } else {
+                    return Err(ApiError::NotFound("No results found"));
+                }
+            }
+            Err(ApiError::NotFound("No results found"))
         }
         _ => Err(ApiError::NotAcceptable(
             "Requested accept type can not be accommodated (try application/json instead)",
