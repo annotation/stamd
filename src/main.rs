@@ -23,6 +23,7 @@ pub const VERSION: &'static str = env!("CARGO_PKG_VERSION");
 const FLUSH_INTERVAL: Duration = Duration::from_secs(60);
 const CONTENT_TYPE_JSON: &'static str = "application/json";
 const CONTENT_TYPE_HTML: &'static str = "text/html";
+const CONTENT_TYPE_TEXT: &'static str = "text/plain";
 
 #[derive(Parser, Debug)]
 struct Args {
@@ -165,19 +166,24 @@ async fn query(
             negotiate_content_type(&request, &[CONTENT_TYPE_JSON, CONTENT_TYPE_HTML])
         {
             storepool.map(&store_id, |store| {
-                let htmlwriter = HtmlWriter::new(&store, query, None)
-                    .map_err(|e| ApiError::CustomNotFound(e))?;
+                let htmlwriter =
+                    HtmlWriter::new(&store, query, params.get("use").map(|s| s.as_str()))
+                        .map_err(|e| ApiError::CustomNotFound(e))?;
                 Ok(ApiResponse::Html(htmlwriter.to_string()))
             })
         } else if query.querytype().readonly() {
             storepool.map(&store_id, |store| match store.query(query) {
                 Err(err) => Err(ApiError::StamError(err)),
-                Ok(queryiter) => query_results(queryiter, &request),
+                Ok(queryiter) => {
+                    query_results(queryiter, &request, params.get("use").map(|s| s.as_str()))
+                }
             })
         } else {
             storepool.map_mut(&store_id, |store| match store.query_mut(query) {
                 Err(err) => Err(ApiError::StamError(err)),
-                Ok(queryiter) => query_results(queryiter, &request),
+                Ok(queryiter) => {
+                    query_results(queryiter, &request, params.get("use").map(|s| s.as_str()))
+                }
             })
         }
     } else {
@@ -221,21 +227,39 @@ fn negotiate_content_type(
     }
 }
 
-fn query_results(queryiter: QueryIter, request: &Request<Body>) -> Result<ApiResponse, ApiError> {
+fn query_results(
+    queryiter: QueryIter,
+    request: &Request<Body>,
+    use_variable: Option<&str>,
+) -> Result<ApiResponse, ApiError> {
     match negotiate_content_type(request, &[CONTENT_TYPE_JSON]) {
         Ok(CONTENT_TYPE_JSON) => {
-            let mut ser_results = Vec::new();
-            for resultitems in queryiter {
-                let mut responsemap = BTreeMap::new();
-                for (i, (result, name)) in resultitems.iter().zip(resultitems.names()).enumerate() {
-                    responsemap.insert(
-                        name.map(|s| s.to_string()).unwrap_or(format!("{i}")),
-                        result.to_json_string()?,
-                    );
+            if let Some(use_variable) = use_variable {
+                //output only one variable
+                let mut ser_results = Vec::new();
+                for resultitems in queryiter {
+                    if let Ok(result) = resultitems.get_by_name(use_variable) {
+                        ser_results.push(result.to_json_string()?);
+                    }
                 }
-                ser_results.push(responsemap);
+                Ok(ApiResponse::Results(ser_results))
+            } else {
+                //output all variables
+                let mut ser_results = Vec::new();
+                for resultitems in queryiter {
+                    let mut responsemap = BTreeMap::new();
+                    for (i, (result, name)) in
+                        resultitems.iter().zip(resultitems.names()).enumerate()
+                    {
+                        responsemap.insert(
+                            name.map(|s| s.to_string()).unwrap_or(format!("{i}")),
+                            result.to_json_string()?,
+                        );
+                    }
+                    ser_results.push(responsemap);
+                }
+                Ok(ApiResponse::MapResults(ser_results))
             }
-            Ok(ApiResponse::Results(ser_results))
         }
         _ => Err(ApiError::NotAcceptable(
             "Requested accept type can not be accommodated (try application/json instead)",

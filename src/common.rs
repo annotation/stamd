@@ -11,7 +11,8 @@ use std::collections::BTreeMap;
 pub enum ApiResponse {
     Text(String),
     Html(String),
-    Results(Vec<BTreeMap<String, String>>),
+    Results(Vec<String>),
+    MapResults(Vec<BTreeMap<String, String>>),
 }
 
 impl IntoResponse for ApiResponse {
@@ -20,6 +21,7 @@ impl IntoResponse for ApiResponse {
             Self::Text(s) => (StatusCode::OK, s).into_response(),
             Self::Html(s) => (StatusCode::OK, Html(s)).into_response(),
             Self::Results(data) => (StatusCode::OK, Json(data)).into_response(),
+            Self::MapResults(data) => (StatusCode::OK, Json(data)).into_response(),
         }
     }
 }
