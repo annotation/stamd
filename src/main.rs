@@ -3,6 +3,7 @@ use axum::{
     response::Html, routing::get, Router, ServiceExt,
 };
 use clap::Parser;
+use stam::FindText;
 use stam::WebAnnoConfig;
 use std::collections::BTreeMap;
 use std::collections::HashMap;
@@ -14,7 +15,7 @@ use tower_http::normalize_path::NormalizePathLayer;
 use tower_http::trace::TraceLayer;
 use tracing::{debug, error, Level};
 
-use stam::{Config, QueryIter, StamError, Text};
+use stam::{Config, Offset, QueryIter, StamError, Text};
 use stamtools::view::HtmlWriter;
 
 mod common;
@@ -115,10 +116,14 @@ async fn main() {
     let app = Router::new()
         .route("/", get(list_stores))
         .route("/query/:store_id", get(get_query))
-        .route("/annotations/:store_id", get(get_annotation_list))
         .route("/annotations/:store_id/:annotation_id", get(get_annotation))
-        .route("/resources/:store_id", get(get_annotation_list))
+        .route("/annotations/:store_id", get(get_annotation_list))
+        .route(
+            "/resources/:store_id/:resource_id/:begin/:end",
+            get(get_textselection),
+        )
         .route("/resources/:store_id/:resource_id", get(get_resource))
+        .route("/resources/:store_id", get(get_resource_list))
         .layer(TraceLayer::new_for_http())
         .with_state(storepool.clone());
 
@@ -272,8 +277,7 @@ async fn get_resource_list(
 }
 
 async fn get_annotation(
-    Path(store_id): Path<String>,
-    Path(annotation_id): Path<String>,
+    Path((store_id, annotation_id)): Path<(String, String)>,
     storepool: State<Arc<StorePool>>,
     request: Request<Body>,
 ) -> Result<ApiResponse, ApiError> {
@@ -301,8 +305,7 @@ async fn get_annotation(
 }
 
 async fn get_resource(
-    Path(store_id): Path<String>,
-    Path(resource_id): Path<String>,
+    Path((store_id, resource_id)): Path<(String, String)>,
     storepool: State<Arc<StorePool>>,
     request: Request<Body>,
 ) -> Result<ApiResponse, ApiError> {
@@ -312,6 +315,27 @@ async fn get_resource(
             match negotiate_content_type(&request, &[CONTENT_TYPE_JSON, CONTENT_TYPE_TEXT]) {
                 Ok(CONTENT_TYPE_JSON) => Ok(ApiResponse::Json(resource.as_ref().to_json_string()?)),
                 Ok(CONTENT_TYPE_TEXT) => Ok(ApiResponse::Text(resource.text().to_string())),
+                _ => Err(ApiError::NotAcceptable(
+                    "Accept headed could not be satisfied (try application/json)",
+                )),
+            }
+        }
+    })
+}
+
+async fn get_textselection(
+    Path((store_id, resource_id, begin, end)): Path<(String, String, String, String)>,
+    storepool: State<Arc<StorePool>>,
+    request: Request<Body>,
+) -> Result<ApiResponse, ApiError> {
+    let offset = Offset::new(begin.as_str().try_into()?, end.as_str().try_into()?);
+    storepool.map(&store_id, |store| match store.resource(resource_id) {
+        None => Err(ApiError::NotFound("No such resource")),
+        Some(resource) => {
+            let textselection = resource.textselection(&offset)?;
+            match negotiate_content_type(&request, &[CONTENT_TYPE_JSON, CONTENT_TYPE_TEXT]) {
+                Ok(CONTENT_TYPE_JSON) => Ok(ApiResponse::Json(textselection.to_json_string()?)),
+                Ok(CONTENT_TYPE_TEXT) => Ok(ApiResponse::Text(textselection.text().to_string())),
                 _ => Err(ApiError::NotAcceptable(
                     "Accept headed could not be satisfied (try application/json)",
                 )),
