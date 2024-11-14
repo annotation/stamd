@@ -1,7 +1,7 @@
 use crate::common::ApiError;
 use stam::{AnnotationStore, Config};
 use std::collections::HashMap;
-use std::path::{Component, PathBuf};
+use std::path::{Component, Path, PathBuf};
 use std::sync::{Arc, RwLock};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tracing::info;
@@ -50,6 +50,14 @@ impl StorePool {
                 config,
             })
         }
+    }
+
+    pub fn basedir(&self) -> &Path {
+        self.basedir.as_path()
+    }
+
+    pub fn extension(&self) -> &str {
+        self.extension.as_str()
     }
 
     pub fn map<F, T>(&self, id: &str, f: F) -> Result<T, ApiError>

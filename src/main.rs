@@ -1,17 +1,20 @@
 use axum::{
     body::Body, extract::Path, extract::Query, extract::State, http::HeaderValue, http::Request,
-    response::Html, routing::get, Router,
+    response::Html, routing::get, Router, ServiceExt,
 };
 use clap::Parser;
+use stam::WebAnnoConfig;
 use std::collections::BTreeMap;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::signal;
+use tower::layer::Layer;
+use tower_http::normalize_path::NormalizePathLayer;
 use tower_http::trace::TraceLayer;
 use tracing::{debug, error, Level};
 
-use stam::{Config, QueryIter, StamError};
+use stam::{Config, QueryIter, StamError, Text};
 use stamtools::view::HtmlWriter;
 
 mod common;
@@ -22,6 +25,7 @@ use multistore::StorePool;
 pub const VERSION: &'static str = env!("CARGO_PKG_VERSION");
 const FLUSH_INTERVAL: Duration = Duration::from_secs(60);
 const CONTENT_TYPE_JSON: &'static str = "application/json";
+const CONTENT_TYPE_JSONLD: &'static str = "application/ld+json";
 const CONTENT_TYPE_HTML: &'static str = "text/html";
 const CONTENT_TYPE_TEXT: &'static str = "text/plain";
 
@@ -109,17 +113,27 @@ async fn main() {
     });
 
     let app = Router::new()
-        .route("/", get(root))
-        .route("/query/:store_id/", get(query))
+        .route("/", get(list_stores))
+        .route("/query/:store_id", get(get_query))
+        .route("/annotations/:store_id", get(get_annotation_list))
+        .route("/annotations/:store_id/:annotation_id", get(get_annotation))
+        .route("/resources/:store_id", get(get_annotation_list))
+        .route("/resources/:store_id/:resource_id", get(get_resource))
         .layer(TraceLayer::new_for_http())
         .with_state(storepool.clone());
 
+    //allow trailing slashes as well:
+    let app = NormalizePathLayer::trim_trailing_slash().layer(app);
+
     eprintln!("[stamd] listening on {}", args.bind);
     let listener = tokio::net::TcpListener::bind(args.bind).await.unwrap();
-    axum::serve(listener, app)
-        .with_graceful_shutdown(shutdown_signal(storepool))
-        .await
-        .unwrap();
+    axum::serve(
+        listener,
+        ServiceExt::<axum::http::Request<Body>>::into_make_service(app),
+    )
+    .with_graceful_shutdown(shutdown_signal(storepool))
+    .await
+    .unwrap();
 }
 
 async fn shutdown_signal(storepool: Arc<StorePool>) {
@@ -150,11 +164,32 @@ async fn shutdown_signal(storepool: Arc<StorePool>) {
     }
 }
 
-async fn root(_state: State<Arc<StorePool>>) -> String {
-    format!("stamd {}", VERSION)
+async fn list_stores(
+    storepool: State<Arc<StorePool>>,
+    request: Request<Body>,
+) -> Result<ApiResponse, ApiError> {
+    if let Ok(CONTENT_TYPE_JSON) = negotiate_content_type(&request, &[CONTENT_TYPE_JSON]) {
+        let extension = format!(".{}", storepool.extension());
+        let mut store_ids = Vec::new();
+        for entry in std::fs::read_dir(storepool.basedir())
+            .map_err(|_| ApiError::InternalError("Unable to read base directory"))?
+        {
+            let entry = entry.unwrap();
+            if let Some(filename) = entry.file_name().to_str() {
+                if let Some(pos) = filename.find(&extension) {
+                    store_ids.push(filename[0..pos].to_string());
+                }
+            }
+        }
+        Ok(ApiResponse::JsonList(store_ids))
+    } else {
+        Err(ApiError::NotAcceptable(
+            "Accept headed could not be satisfied (try application/json)",
+        ))
+    }
 }
 
-async fn query(
+async fn get_query(
     Path(store_id): Path<String>,
     Query(params): Query<HashMap<String, String>>,
     storepool: State<Arc<StorePool>>,
@@ -192,6 +227,98 @@ async fn query(
     }
 }
 
+async fn get_annotation_list(
+    Path(store_id): Path<String>,
+    storepool: State<Arc<StorePool>>,
+    request: Request<Body>,
+) -> Result<ApiResponse, ApiError> {
+    storepool.map(&store_id, |store| {
+        match negotiate_content_type(&request, &[CONTENT_TYPE_JSON]) {
+            Ok(CONTENT_TYPE_JSON) => {
+                //TODO: may be a fairly expensive copy if there are lots of annotations, no pagination either here
+                let annotations: Vec<String> = store
+                    .annotations()
+                    .filter_map(|a| a.id().map(|s| s.to_string()))
+                    .collect();
+                Ok(ApiResponse::JsonList(annotations))
+            }
+            _ => Err(ApiError::NotAcceptable(
+                "Accept headed could not be satisfied (try application/json)",
+            )),
+        }
+    })
+}
+
+async fn get_resource_list(
+    Path(store_id): Path<String>,
+    storepool: State<Arc<StorePool>>,
+    request: Request<Body>,
+) -> Result<ApiResponse, ApiError> {
+    storepool.map(&store_id, |store| {
+        match negotiate_content_type(&request, &[CONTENT_TYPE_JSON]) {
+            Ok(CONTENT_TYPE_JSON) => {
+                //TODO: may be a fairly expensive copy if there are lots of resources, no pagination either here
+                let resources: Vec<String> = store
+                    .resources()
+                    .filter_map(|r| r.id().map(|s| s.to_string()))
+                    .collect();
+                Ok(ApiResponse::JsonList(resources))
+            }
+            _ => Err(ApiError::NotAcceptable(
+                "Accept headed could not be satisfied (try application/json)",
+            )),
+        }
+    })
+}
+
+async fn get_annotation(
+    Path(store_id): Path<String>,
+    Path(annotation_id): Path<String>,
+    storepool: State<Arc<StorePool>>,
+    request: Request<Body>,
+) -> Result<ApiResponse, ApiError> {
+    storepool.map(&store_id, |store| match store.annotation(annotation_id) {
+        None => Err(ApiError::NotFound("No such annotation")),
+        Some(annotation) => {
+            match negotiate_content_type(
+                &request,
+                &[CONTENT_TYPE_JSON, CONTENT_TYPE_JSONLD, CONTENT_TYPE_TEXT],
+            ) {
+                Ok(CONTENT_TYPE_JSON) => Ok(ApiResponse::Json(
+                    annotation.as_ref().to_json_string(store)?,
+                )),
+                Ok(CONTENT_TYPE_JSONLD) => Ok(ApiResponse::JsonLd(
+                    //TODO: replace webannoconfig
+                    annotation.to_webannotation(&WebAnnoConfig::default()),
+                )),
+                Ok(CONTENT_TYPE_TEXT) => Ok(ApiResponse::Text(annotation.text_join("\t"))),
+                _ => Err(ApiError::NotAcceptable(
+                    "Accept headed could not be satisfied (try application/json)",
+                )),
+            }
+        }
+    })
+}
+
+async fn get_resource(
+    Path(store_id): Path<String>,
+    Path(resource_id): Path<String>,
+    storepool: State<Arc<StorePool>>,
+    request: Request<Body>,
+) -> Result<ApiResponse, ApiError> {
+    storepool.map(&store_id, |store| match store.resource(resource_id) {
+        None => Err(ApiError::NotFound("No such resource")),
+        Some(resource) => {
+            match negotiate_content_type(&request, &[CONTENT_TYPE_JSON, CONTENT_TYPE_TEXT]) {
+                Ok(CONTENT_TYPE_JSON) => Ok(ApiResponse::Json(resource.as_ref().to_json_string()?)),
+                Ok(CONTENT_TYPE_TEXT) => Ok(ApiResponse::Text(resource.text().to_string())),
+                _ => Err(ApiError::NotAcceptable(
+                    "Accept headed could not be satisfied (try application/json)",
+                )),
+            }
+        }
+    })
+}
 fn negotiate_content_type(
     request: &Request<Body>,
     offer_types: &[&'static str],
@@ -243,7 +370,7 @@ fn query_results(
                         ser_results.push(result.to_json_string()?);
                     }
                 }
-                Ok(ApiResponse::Results(ser_results))
+                Ok(ApiResponse::JsonList(ser_results))
             } else {
                 //output all variables
                 let mut ser_results = Vec::new();
@@ -259,7 +386,7 @@ fn query_results(
                     }
                     ser_results.push(responsemap);
                 }
-                Ok(ApiResponse::MapResults(ser_results))
+                Ok(ApiResponse::JsonMapList(ser_results))
             }
         }
         Ok(CONTENT_TYPE_TEXT) => {
@@ -270,7 +397,7 @@ fn query_results(
                     ));
                 }
                 if let Ok(result) = resultitems.get_by_name_or_first(use_variable) {
-                    return Ok(ApiResponse::Text(result.text(Some(" "))?.to_string()));
+                    return Ok(ApiResponse::Text(result.text(Some("\t"))?.to_string()));
                 } else {
                     return Err(ApiError::NotFound("No results found"));
                 }
