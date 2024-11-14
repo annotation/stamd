@@ -1,5 +1,5 @@
 use crate::common::ApiError;
-use stam::{AnnotationStore, Config};
+use stam::{AnnotationStore, AssociatedFile, Config};
 use std::collections::HashMap;
 use std::path::{Component, Path, PathBuf};
 use std::sync::{Arc, RwLock};
@@ -108,6 +108,42 @@ impl StorePool {
         }
     }
 
+    /// Create a new store
+    pub fn new_store(&self, id: &str) -> Result<(), ApiError> {
+        if self.readonly {
+            return Err(ApiError::PermissionDenied("Service is readonly"));
+        }
+        self.check_basename(id)?;
+        let filename: String = format!("{}.{}", id, self.extension());
+        let filename_pb: PathBuf = filename.clone().into();
+        if filename_pb.exists() {
+            Err(ApiError::PermissionDenied("Store already exists"))
+        } else {
+            let mut store = AnnotationStore::new(self.config.clone()).with_id(id);
+            store.set_filename(filename.as_str());
+            let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap();
+            if let Ok(mut states) = self.states.write() {
+                //mark as loading
+                states.insert(
+                    id.to_string(),
+                    StoreState {
+                        last_access: now,
+                        loading: false,
+                        saving: false,
+                    },
+                );
+            } else {
+                return Err(ApiError::InternalError("Lock poisoned"));
+            }
+            if let Ok(mut stores) = self.stores.write() {
+                stores.insert(id.to_string(), Arc::new(RwLock::new(store)));
+            } else {
+                return Err(ApiError::InternalError("Lock poisoned"));
+            }
+            Ok(())
+        }
+    }
+
     /// Loads an annotation store if it is not already loaded.
     /// Only one thread can load at a time.
     /// This function blocks until the store is loaded (either by us or by another thread)
@@ -147,26 +183,13 @@ impl StorePool {
             }
         }
 
-        let filename: PathBuf = id.into();
-
         //some security checks so the user can't break out of the configured base directory
-        if filename.is_absolute() {
-            return Err(ApiError::NotFound(
-                "No such annotationstore exists (no absolute paths allowed)",
-            ));
-        }
-        for component in filename.components() {
-            if component == Component::ParentDir {
-                return Err(ApiError::NotFound(
-                    "No such annotationstore exists (no parent directories allowed)",
-                ));
-            }
-        }
+        let basename: PathBuf = self.check_basename(id)?;
 
         let filename = self
             .basedir
             .clone()
-            .join(filename)
+            .join(basename)
             .with_extension(&self.extension);
         if !filename.exists() {
             return Err(ApiError::NotFound("No such annotationstore exists"));
@@ -344,6 +367,28 @@ impl StorePool {
         }
 
         Ok(remove_ids)
+    }
+
+    fn check_basename(&self, id: &str) -> Result<PathBuf, ApiError> {
+        let filename: PathBuf = id.into();
+
+        //some security checks so the user can't break out of the configured base directory
+        if filename.is_absolute() {
+            return Err(ApiError::NotFound(
+                "No such annotationstore exists (no absolute paths allowed)",
+            ));
+        }
+        for (i, component) in filename.components().enumerate() {
+            if i > 0 {
+                return Err(ApiError::NotFound("Filename may not contain a directory"));
+            }
+            if component == Component::ParentDir {
+                return Err(ApiError::NotFound(
+                    "No such annotationstore exists (no parent directories allowed)",
+                ));
+            }
+        }
+        Ok(filename)
     }
 }
 

@@ -1,6 +1,6 @@
 use axum::{
-    body::Body, extract::Path, extract::Query, extract::State, http::Request, routing::get, Router,
-    ServiceExt,
+    body::Body, extract::Path, extract::Query, extract::State, http::Request, routing::get,
+    routing::post, Router, ServiceExt,
 };
 use clap::Parser;
 use stam::FindText;
@@ -88,6 +88,7 @@ struct Args {
     paths(
         list_stores,
         get_query,
+        create_store,
         get_annotation_list,
         get_annotation,
         get_resource_list,
@@ -136,15 +137,16 @@ async fn main() {
 
     let app = Router::new()
         .route("/", get(list_stores))
-        .route("/query/:store_id", get(get_query))
-        .route("/annotations/:store_id/:annotation_id", get(get_annotation))
-        .route("/annotations/:store_id", get(get_annotation_list))
+        .route("/:store_id", post(create_store))
+        .route("/:store_id", get(get_query))
+        .route("/:store_id/annotations/:annotation_id", get(get_annotation))
+        .route("/:store_id/annotations", get(get_annotation_list))
         .route(
-            "/resources/:store_id/:resource_id/:begin/:end",
+            "/:store_id/resources/:resource_id/:begin/:end",
             get(get_textselection),
         )
-        .route("/resources/:store_id/:resource_id", get(get_resource))
-        .route("/resources/:store_id", get(get_resource_list))
+        .route("/:store_id/resources/:resource_id", get(get_resource))
+        .route("/:store_id/resources", get(get_resource_list))
         .merge(SwaggerUi::new("/swagger-ui").url("/api-doc/openapi.json", ApiDoc::openapi()))
         .layer(TraceLayer::new_for_http())
         .with_state(storepool.clone());
@@ -155,8 +157,8 @@ async fn main() {
     eprintln!("[stamd] listening on {}", args.bind);
     let listener = tokio::net::TcpListener::bind(args.bind).await.unwrap();
     axum::serve(
-        listener,
-        ServiceExt::<axum::http::Request<Body>>::into_make_service(app),
+        listener, app,
+        //ServiceExt::<axum::http::Request<Body>>::into_make_service(app),
     )
     .with_graceful_shutdown(shutdown_signal(storepool))
     .await
@@ -225,10 +227,27 @@ async fn list_stores(
 }
 
 #[utoipa::path(
+    post,
+    path = "/{store_id}",
+    responses(
+        (status = 201, description = "Returned when successfully created"),
+        (status = 403, body = apidocs::ApiError, description = "Returned with name `PermissionDenied` when permission is denied, for instance the store is configured as read-only or the store already exists", content_type = "application/json")
+    )
+)]
+/// Create a new annotation store
+async fn create_store(
+    Path(store_id): Path<String>,
+    storepool: State<Arc<StorePool>>,
+) -> Result<ApiResponse, ApiError> {
+    storepool.new_store(&store_id)?;
+    Ok(ApiResponse::Created())
+}
+
+#[utoipa::path(
     get,
-    path = "/query/{store}",
+    path = "/{store_id}",
     params(
-        ("store" = String, Path, description = "The identifier of the store"),
+        ("store_id" = String, Path, description = "The identifier of the store"),
         ("query" = String, Query, description = "A query in STAMQL, see <https://github.com/annotation/stam/tree/master/extensions/stam-query> for the syntax.", allow_reserved),
         ("use" = Option<String>, Query, description = "Select a single variable from the query (by name, without '?' prefix), to constrain the result set accordingly.")
     ),
@@ -287,9 +306,9 @@ async fn get_query(
 
 #[utoipa::path(
     get,
-    path = "/annotations/{store}",
+    path = "/{store_id}/annotations",
     params(
-        ("store" = String, Path, description = "The identifier of the store"),
+        ("store_id" = String, Path, description = "The identifier of the store"),
     ),
     responses(
         (status = 200, body = [String], description = "Returns a simple list of all available annotations (IDs), for the given store"),
@@ -321,9 +340,9 @@ async fn get_annotation_list(
 
 #[utoipa::path(
     get,
-    path = "/resources/{store}",
+    path = "/{store_id}/resources",
     params(
-        ("store" = String, Path, description = "The identifier of the store"),
+        ("store_id" = String, Path, description = "The identifier of the store"),
     ),
     responses(
         (status = 200, body = [String], description = "Returns a simple list of all available resources (IDs), for the given store"),
@@ -355,10 +374,10 @@ async fn get_resource_list(
 
 #[utoipa::path(
     get,
-    path = "/annotations/{store}/{annotation}",
+    path = "/{store_id}/annotations/{annotation_id}",
     params(
-        ("store" = String, Path, description = "The identifier of the store the annotation is in"),
-        ("annotation" = String, Path, description = "The identifier of the annotation"),
+        ("store_id" = String, Path, description = "The identifier of the store the annotation is in"),
+        ("annotation_id" = String, Path, description = "The identifier of the annotation"),
     ),
     responses(
         (status = 200, description = "The annotation. Several return types are supported via content negotation.",content(
@@ -402,10 +421,10 @@ async fn get_annotation(
 
 #[utoipa::path(
     get,
-    path = "/resources/{store}/{resource}",
+    path = "/{store_id}/resources/{resource_id}",
     params(
-        ("store" = String, Path, description = "The identifier of the store the resource is in"),
-        ("resource" = String, Path, description = "The identifier of the resource"),
+        ("store_id" = String, Path, description = "The identifier of the store the resource is in"),
+        ("resource_id" = String, Path, description = "The identifier of the resource"),
     ),
     responses(
         (status = 200, description = "The resource. Several return types are supported via content negotation.",content(
@@ -439,10 +458,10 @@ async fn get_resource(
 
 #[utoipa::path(
     get,
-    path = "/resources/{store}/{resource}/{begin}/{end}",
+    path = "/{store_id}/resources/{resource_id}/{begin}/{end}",
     params(
-        ("store" = String, Path, description = "The identifier of the store the resource is in"),
-        ("resource" = String, Path, description = "The identifier of the resource"),
+        ("store_id" = String, Path, description = "The identifier of the store the resource is in"),
+        ("resource_id" = String, Path, description = "The identifier of the resource"),
         ("begin" = isize, Path, description = "An integer indicating the begin offset in unicode points (0-indexed). This may be a negative integer for end-aligned cursors."),
         ("end" = isize, Path, description = "An integer indicating the non-inclusive end offset in unicode points (0-indexed). This may be a negative integer for end-aligned cursors. `-0` is a special value in this context, which means until the very end."),
     ),

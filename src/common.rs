@@ -10,6 +10,7 @@ use std::collections::BTreeMap;
 
 #[derive(Debug)]
 pub enum ApiResponse {
+    Created(),
     Text(String),
     Html(String),
     Json(String),
@@ -22,6 +23,7 @@ pub enum ApiResponse {
 impl IntoResponse for ApiResponse {
     fn into_response(self) -> Response {
         match self {
+            Self::Created() => (StatusCode::CREATED, "created").into_response(),
             Self::Text(s) => (StatusCode::OK, s).into_response(),
             Self::Html(s) => (StatusCode::OK, Html(s)).into_response(),
             Self::JsonLd(data) => (
