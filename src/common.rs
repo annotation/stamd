@@ -5,6 +5,7 @@ use axum::{
 };
 use serde::ser::SerializeStruct;
 use serde::Serialize;
+use serde_json::value::Value;
 use stam::StamError;
 use std::collections::BTreeMap;
 
@@ -13,11 +14,11 @@ pub enum ApiResponse {
     Created(),
     Text(String),
     Html(String),
-    Json(String),
+    RawJson(String),
     /// W3C Web Annotations in JSON-LD
-    JsonLd(String),
-    JsonList(Vec<String>),
-    JsonMapList(Vec<BTreeMap<String, String>>),
+    RawJsonLd(String),
+    JsonList(Vec<Value>),
+    JsonMap(Vec<BTreeMap<String, Value>>),
 }
 
 impl IntoResponse for ApiResponse {
@@ -26,7 +27,7 @@ impl IntoResponse for ApiResponse {
             Self::Created() => (StatusCode::CREATED, "created").into_response(),
             Self::Text(s) => (StatusCode::OK, s).into_response(),
             Self::Html(s) => (StatusCode::OK, Html(s)).into_response(),
-            Self::JsonLd(data) => (
+            Self::RawJsonLd(data) => (
                 StatusCode::OK,
                 [(
                     header::CONTENT_TYPE,
@@ -37,7 +38,7 @@ impl IntoResponse for ApiResponse {
                 data,
             )
                 .into_response(),
-            Self::Json(data) => (
+            Self::RawJson(data) => (
                 StatusCode::OK,
                 [(
                     header::CONTENT_TYPE,
@@ -49,7 +50,7 @@ impl IntoResponse for ApiResponse {
             )
                 .into_response(),
             Self::JsonList(data) => (StatusCode::OK, Json(data)).into_response(),
-            Self::JsonMapList(data) => (StatusCode::OK, Json(data)).into_response(),
+            Self::JsonMap(data) => (StatusCode::OK, Json(data)).into_response(),
         }
     }
 }

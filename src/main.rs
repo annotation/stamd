@@ -3,6 +3,7 @@ use axum::{
     routing::post, Router, ServiceExt,
 };
 use clap::Parser;
+use serde_json::value::Value;
 use stam::FindText;
 use stam::WebAnnoConfig;
 use std::collections::BTreeMap;
@@ -207,14 +208,14 @@ async fn list_stores(
 ) -> Result<ApiResponse, ApiError> {
     if let Ok(CONTENT_TYPE_JSON) = negotiate_content_type(&request, &[CONTENT_TYPE_JSON]) {
         let extension = format!(".{}", storepool.extension());
-        let mut store_ids = Vec::new();
+        let mut store_ids: Vec<serde_json::Value> = Vec::new();
         for entry in std::fs::read_dir(storepool.basedir())
             .map_err(|_| ApiError::InternalError("Unable to read base directory"))?
         {
             let entry = entry.unwrap();
             if let Some(filename) = entry.file_name().to_str() {
                 if let Some(pos) = filename.find(&extension) {
-                    store_ids.push(filename[0..pos].to_string());
+                    store_ids.push(filename[0..pos].into());
                 }
             }
         }
@@ -325,9 +326,9 @@ async fn get_annotation_list(
         match negotiate_content_type(&request, &[CONTENT_TYPE_JSON]) {
             Ok(CONTENT_TYPE_JSON) => {
                 //TODO: may be a fairly expensive copy if there are lots of annotations, no pagination either here
-                let annotations: Vec<String> = store
+                let annotations: Vec<serde_json::Value> = store
                     .annotations()
-                    .filter_map(|a| a.id().map(|s| s.to_string()))
+                    .filter_map(|a| a.id().map(|s| s.into()))
                     .collect();
                 Ok(ApiResponse::JsonList(annotations))
             }
@@ -359,9 +360,9 @@ async fn get_resource_list(
         match negotiate_content_type(&request, &[CONTENT_TYPE_JSON]) {
             Ok(CONTENT_TYPE_JSON) => {
                 //TODO: may be a fairly expensive copy if there are lots of resources, no pagination either here
-                let resources: Vec<String> = store
+                let resources: Vec<serde_json::Value> = store
                     .resources()
-                    .filter_map(|r| r.id().map(|s| s.to_string()))
+                    .filter_map(|r| r.id().map(|s| s.into()))
                     .collect();
                 Ok(ApiResponse::JsonList(resources))
             }
@@ -403,10 +404,10 @@ async fn get_annotation(
                 &request,
                 &[CONTENT_TYPE_JSON, CONTENT_TYPE_JSONLD, CONTENT_TYPE_TEXT],
             ) {
-                Ok(CONTENT_TYPE_JSON) => Ok(ApiResponse::Json(
+                Ok(CONTENT_TYPE_JSON) => Ok(ApiResponse::RawJson(
                     annotation.as_ref().to_json_string(store)?,
                 )),
-                Ok(CONTENT_TYPE_JSONLD) => Ok(ApiResponse::JsonLd(
+                Ok(CONTENT_TYPE_JSONLD) => Ok(ApiResponse::RawJsonLd(
                     //TODO: replace webannoconfig
                     annotation.to_webannotation(&WebAnnoConfig::default()),
                 )),
@@ -446,7 +447,9 @@ async fn get_resource(
         None => Err(ApiError::NotFound("No such resource")),
         Some(resource) => {
             match negotiate_content_type(&request, &[CONTENT_TYPE_JSON, CONTENT_TYPE_TEXT]) {
-                Ok(CONTENT_TYPE_JSON) => Ok(ApiResponse::Json(resource.as_ref().to_json_string()?)),
+                Ok(CONTENT_TYPE_JSON) => {
+                    Ok(ApiResponse::RawJson(resource.as_ref().to_json_string()?))
+                }
                 Ok(CONTENT_TYPE_TEXT) => Ok(ApiResponse::Text(resource.text().to_string())),
                 _ => Err(ApiError::NotAcceptable(
                     "Accept headed could not be satisfied (try application/json)",
@@ -487,7 +490,7 @@ async fn get_textselection(
         Some(resource) => {
             let textselection = resource.textselection(&offset)?;
             match negotiate_content_type(&request, &[CONTENT_TYPE_JSON, CONTENT_TYPE_TEXT]) {
-                Ok(CONTENT_TYPE_JSON) => Ok(ApiResponse::Json(textselection.to_json_string()?)),
+                Ok(CONTENT_TYPE_JSON) => Ok(ApiResponse::RawJson(textselection.to_json_string()?)),
                 Ok(CONTENT_TYPE_TEXT) => Ok(ApiResponse::Text(textselection.text().to_string())),
                 _ => Err(ApiError::NotAcceptable(
                     "Accept headed could not be satisfied (try application/json)",
@@ -544,7 +547,7 @@ fn query_results(
                 let mut ser_results = Vec::new();
                 for resultitems in queryiter {
                     if let Ok(result) = resultitems.get_by_name(use_variable) {
-                        ser_results.push(result.to_json_string()?);
+                        ser_results.push(result.to_json_value()?);
                     }
                 }
                 Ok(ApiResponse::JsonList(ser_results))
@@ -558,12 +561,12 @@ fn query_results(
                     {
                         responsemap.insert(
                             name.map(|s| s.to_string()).unwrap_or(format!("{i}")),
-                            result.to_json_string()?,
+                            result.to_json_value()?,
                         );
                     }
                     ser_results.push(responsemap);
                 }
-                Ok(ApiResponse::JsonMapList(ser_results))
+                Ok(ApiResponse::JsonMap(ser_results))
             }
         }
         Ok(CONTENT_TYPE_TEXT) => {
