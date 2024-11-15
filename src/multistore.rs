@@ -41,6 +41,7 @@ impl StorePool {
         extension: impl Into<String>,
         readonly: bool,
         unload_time: u64,
+        webannoconfig: WebAnnoConfig,
         config: Config,
     ) -> Result<Self, &'static str> {
         let basedir: PathBuf = basedir.into();
@@ -54,7 +55,7 @@ impl StorePool {
                 stores: HashMap::new().into(),
                 states: HashMap::new().into(),
                 webannoconfigs: HashMap::new().into(),
-                webannoconfig: Default::default(),
+                webannoconfig,
                 unload_time,
                 readonly,
                 config,

@@ -89,6 +89,18 @@ struct Args {
         help = "Output logging info on incoming requests"
     )]
     debug: bool,
+
+    #[arg(
+        long = "add-context",
+        help = "(for Web Annotation output only) URL to a JSONLD context to include"
+    )]
+    add_context: Vec<String>,
+
+    #[arg(
+        long = "ns",
+        help = "(for Web Annotation output only) Add a namespace to the JSON-LD context, syntax is: namespace: uri"
+    )]
+    namespaces: Vec<String>,
 }
 
 #[derive(OpenApi)]
@@ -114,6 +126,22 @@ pub struct ApiDoc;
 async fn main() {
     let args = Args::parse();
 
+    // set up config for webannotations
+    let mut context_namespaces = Vec::new();
+    for assignment in args.namespaces.iter() {
+        let result: Vec<_> = assignment.splitn(2, ":").collect();
+        if result.len() != 2 {
+            error!("Syntax for --ns should be `ns: uri_prefix`");
+        } else {
+            context_namespaces.push((result[1].trim().to_string(), result[0].trim().to_string()));
+        }
+    }
+    let webannoconfig = WebAnnoConfig {
+        extra_context: args.add_context,
+        context_namespaces,
+        ..WebAnnoConfig::default()
+    };
+
     let storepool = StorePool::new(
         args.basedir,
         if let Some(baseurl) = args.baseurl.as_ref() {
@@ -124,6 +152,7 @@ async fn main() {
         args.extension,
         args.readonly,
         args.unload_time,
+        webannoconfig,
         Config::default(),
     )
     .expect("Base directory must exist");
