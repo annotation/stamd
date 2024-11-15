@@ -1,5 +1,5 @@
 use crate::common::ApiError;
-use stam::{AnnotationStore, AssociatedFile, Config, TextResourceBuilder};
+use stam::{AnnotationStore, AssociatedFile, Config, TextResourceBuilder, WebAnnoConfig};
 use std::collections::HashMap;
 use std::path::{Component, Path, PathBuf};
 use std::sync::{Arc, RwLock};
@@ -20,17 +20,24 @@ pub struct StoreState {
 
 pub struct StorePool {
     basedir: PathBuf,
+    baseurl: String,
     extension: String,
     readonly: bool,
     unload_time: u64,
     stores: RwLock<HashMap<String, Arc<RwLock<AnnotationStore>>>>, //the extra Arc allows us to drop the lock earlier
     states: RwLock<HashMap<String, StoreState>>,
+    webannoconfigs: RwLock<HashMap<String, WebAnnoConfig>>,
+
+    /// Root WebAnnoConfig that store-specific ones will be derived from
+    webannoconfig: WebAnnoConfig,
+
     config: Config,
 }
 
 impl StorePool {
     pub fn new(
         basedir: impl Into<PathBuf>,
+        baseurl: impl Into<String>,
         extension: impl Into<String>,
         readonly: bool,
         unload_time: u64,
@@ -42,9 +49,12 @@ impl StorePool {
         } else {
             Ok(Self {
                 basedir,
+                baseurl: baseurl.into(),
                 extension: extension.into(),
                 stores: HashMap::new().into(),
                 states: HashMap::new().into(),
+                webannoconfigs: HashMap::new().into(),
+                webannoconfig: Default::default(),
                 unload_time,
                 readonly,
                 config,
@@ -56,8 +66,16 @@ impl StorePool {
         self.basedir.as_path()
     }
 
+    pub fn baseurl(&self) -> &str {
+        self.baseurl.as_str()
+    }
+
     pub fn extension(&self) -> &str {
         self.extension.as_str()
+    }
+
+    pub fn webannoconfigs(&self) -> &RwLock<HashMap<String, WebAnnoConfig>> {
+        &self.webannoconfigs
     }
 
     pub fn map<F, T>(&self, id: &str, f: F) -> Result<T, ApiError>
@@ -137,10 +155,36 @@ impl StorePool {
             }
             if let Ok(mut stores) = self.stores.write() {
                 stores.insert(id.to_string(), Arc::new(RwLock::new(store)));
+                self.add_webannoconfig(id);
             } else {
                 return Err(ApiError::InternalError("Lock poisoned"));
             }
             Ok(())
+        }
+    }
+
+    fn add_webannoconfig(&self, id: &str) {
+        //also add a configuration for Web Annotations
+        if let Ok(mut webannoconfigs) = self.webannoconfigs.write() {
+            let mut webannoconfig = self.webannoconfig.clone();
+            webannoconfig.auto_generated = false;
+            webannoconfig.default_annotation_iri = if self.baseurl().ends_with("/") {
+                format!("{}{}/annotations/", self.baseurl(), id)
+            } else {
+                format!("{}/{}/annotations/", self.baseurl(), id)
+            };
+            webannoconfig.default_resource_iri = if self.baseurl().ends_with("/") {
+                format!("{}{}/resources/", self.baseurl(), id)
+            } else {
+                format!("{}/{}/resources/", self.baseurl(), id)
+            };
+            webannoconfig.default_set_iri = if self.baseurl().ends_with("/") {
+                format!("{}{}/datasets/", self.baseurl(), id)
+            } else {
+                format!("{}/{}/datasets/", self.baseurl(), id)
+            };
+
+            webannoconfigs.insert(id.to_string(), webannoconfig);
         }
     }
 
@@ -252,6 +296,7 @@ impl StorePool {
                     //TODO: verify substores and resources can't break out of the base dir either!
                     if let Ok(mut stores) = self.stores.write() {
                         stores.insert(id.to_string(), Arc::new(RwLock::new(store)));
+                        self.add_webannoconfig(id);
                     } else {
                         return Err(ApiError::InternalError("Lock poisoned"));
                     }
@@ -360,6 +405,14 @@ impl StorePool {
                 if let Ok(mut stores) = self.stores.write() {
                     if stores.contains_key(id) {
                         stores.remove(id);
+                    }
+                } else {
+                    return Err(ApiError::InternalError("Lock poisoned"));
+                }
+
+                if let Ok(mut webannoconfigs) = self.webannoconfigs.write() {
+                    if webannoconfigs.contains_key(id) {
+                        webannoconfigs.remove(id);
                     }
                 } else {
                     return Err(ApiError::InternalError("Lock poisoned"));

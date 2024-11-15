@@ -54,6 +54,13 @@ struct Args {
     basedir: String,
 
     #[arg(
+        short = 'u',
+        long,
+        help = "The public-facing base URL. Also used as IRI for webannotations."
+    )]
+    baseurl: Option<String>,
+
+    #[arg(
         short = 'e',
         long,
         default_value_os = "store.stam.json",
@@ -109,6 +116,11 @@ async fn main() {
 
     let storepool = StorePool::new(
         args.basedir,
+        if let Some(baseurl) = args.baseurl.as_ref() {
+            baseurl.to_string()
+        } else {
+            format!("http://{}/", args.bind)
+        },
         args.extension,
         args.readonly,
         args.unload_time,
@@ -428,10 +440,19 @@ async fn get_annotation(
                 Ok(CONTENT_TYPE_JSON) => Ok(ApiResponse::RawJson(
                     annotation.as_ref().to_json_string(store)?,
                 )),
-                Ok(CONTENT_TYPE_JSONLD) => Ok(ApiResponse::RawJsonLd(
-                    //TODO: replace webannoconfig
-                    annotation.to_webannotation(&WebAnnoConfig::default()),
-                )),
+                Ok(CONTENT_TYPE_JSONLD) => {
+                    if let Ok(webannoconfigs) = storepool.webannoconfigs().read() {
+                        if let Some(webannoconfig) = webannoconfigs.get(&store_id) {
+                            Ok(ApiResponse::RawJsonLd(
+                                annotation.to_webannotation(webannoconfig).to_string(),
+                            ))
+                        } else {
+                            Err(ApiError::InternalError("Webannoconfig must exist"))
+                        }
+                    } else {
+                        Err(ApiError::InternalError("Webannoconfigs lock poisoned"))
+                    }
+                }
                 Ok(CONTENT_TYPE_TEXT) => Ok(ApiResponse::Text(annotation.text_join("\t"))),
                 _ => Err(ApiError::NotAcceptable(
                     "Accept headed could not be satisfied (try application/json)",
@@ -466,17 +487,12 @@ async fn get_resource(
 ) -> Result<ApiResponse, ApiError> {
     storepool.map(&store_id, |store| match store.resource(resource_id) {
         None => Err(ApiError::NotFound("No such resource")),
-        Some(resource) => {
-            match negotiate_content_type(&request, &[CONTENT_TYPE_JSON, CONTENT_TYPE_TEXT]) {
-                Ok(CONTENT_TYPE_JSON) => {
-                    Ok(ApiResponse::RawJson(resource.as_ref().to_json_string()?))
-                }
-                Ok(CONTENT_TYPE_TEXT) => Ok(ApiResponse::Text(resource.text().to_string())),
-                _ => Err(ApiError::NotAcceptable(
-                    "Accept headed could not be satisfied (try application/json)",
-                )),
-            }
-        }
+        Some(resource) => match negotiate_content_type(&request, &[CONTENT_TYPE_TEXT]) {
+            Ok(CONTENT_TYPE_TEXT) => Ok(ApiResponse::Text(resource.text().to_string())),
+            _ => Err(ApiError::NotAcceptable(
+                "Accept headed could not be satisfied (try application/json)",
+            )),
+        },
     })
 }
 
@@ -520,6 +536,7 @@ async fn get_textselection(
         }
     })
 }
+
 fn negotiate_content_type(
     request: &Request<Body>,
     offer_types: &[&'static str],
