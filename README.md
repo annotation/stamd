@@ -49,6 +49,7 @@ a more formal and complete specification.
 
 * `GET /`                  - Returns an simple JSON list of all available annotation stores in this server.
 * `GET /{store_id}/?query=`   - Runs a STAMQL query on an annotation store. This is the go-to endpoint that provides 90% of all functionality.
+* `POST /query`               - Same as above but takes all paramters as form-encoded data via a POST request
 * `POST /{store_id}`            - Create a new annotation store
 * `GET /{store_id}/annotations` - Returns the public identifiers of all available annotations in the store.
 * `GET /{store_id}/annotations/{annotation_id}` - Returns an annotation given its identifier.
@@ -56,7 +57,7 @@ a more formal and complete specification.
 * `GET /{store_id}/resources/{resource_id}` - Returns a resource given its identifier.
 * `POST /{store_id}/resources/{resource_id}` - Create a new resource in a given store.
 * `GET /{store_id}/resources/{resource_id}/{begin}/{end}` - Returns a text selection inside a resource. Offset are 0-indexed, unicode points, end is non inclusive.
-* `GET /swagger-ui/`       - Serves an interactive webinterface explaining the RESTful API specification.
+* `GET /swagger-ui`       - Serves an interactive webinterface explaining the RESTful API specification.
 * `GET /api-doc/openapi.json`   - Machine parseable OpenAPI specification.
 
 ## Installation

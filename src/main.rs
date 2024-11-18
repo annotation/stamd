@@ -188,8 +188,8 @@ async fn main() {
 
     let app = Router::new()
         .route("/", get(list_stores))
-        .route("/query", post(post_query))
         .route("/:store_id", post(create_store))
+        .route("/query", post(post_query))
         .route("/:store_id", get(get_query))
         .route("/:store_id/annotations/:annotation_id", get(get_annotation))
         .route("/:store_id/annotations", get(get_annotation_list))
