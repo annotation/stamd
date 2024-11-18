@@ -12,7 +12,7 @@
 This is a webservice for working with stand-off annotation of text. It uses the
 [STAM](https://annotation.github.io/stam) model, but can also serve [W3C Web
 Annotations](https://www.w3.org/TR/annotation-model/) using a limited subset of
-the [Web Annnotation Protocol](https://www.w3.org/TR/annotation-protocol/), if
+the [Web Annotation Protocol](https://www.w3.org/TR/annotation-protocol/), if
 the underlying model supports it.
 
 ## Description & Features
