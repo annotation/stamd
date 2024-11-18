@@ -1,8 +1,9 @@
 use axum::{
-    body::Body, extract::Path, extract::Query, extract::State, http::Request, routing::get,
-    routing::post, Router, ServiceExt,
+    body::Body, extract::Path, extract::Query, extract::State, http::HeaderMap, http::HeaderValue,
+    http::Request, routing::get, routing::post, Form, Router, ServiceExt,
 };
 use clap::Parser;
+use serde::Deserialize;
 use serde_json::value::Value;
 use stam::FindText;
 use stam::WebAnnoConfig;
@@ -16,7 +17,7 @@ use tower_http::normalize_path::NormalizePathLayer;
 use tower_http::trace::TraceLayer;
 use tracing::{debug, error};
 
-use utoipa::OpenApi;
+use utoipa::{OpenApi, ToSchema};
 use utoipa_swagger_ui::SwaggerUi;
 
 use stam::{Config, Offset, QueryIter, StamError, Text};
@@ -187,6 +188,7 @@ async fn main() {
 
     let app = Router::new()
         .route("/", get(list_stores))
+        .route("/query", post(post_query))
         .route("/:store_id", post(create_store))
         .route("/:store_id", get(get_query))
         .route("/:store_id/annotations/:annotation_id", get(get_annotation))
@@ -256,7 +258,7 @@ async fn list_stores(
     storepool: State<Arc<StorePool>>,
     request: Request<Body>,
 ) -> Result<ApiResponse, ApiError> {
-    if let Ok(CONTENT_TYPE_JSON) = negotiate_content_type(&request, &[CONTENT_TYPE_JSON]) {
+    if let Ok(CONTENT_TYPE_JSON) = negotiate_content_type(request.headers(), &[CONTENT_TYPE_JSON]) {
         let extension = format!(".{}", storepool.extension());
         let mut store_ids: Vec<serde_json::Value> = Vec::new();
         for entry in std::fs::read_dir(storepool.basedir())
@@ -343,35 +345,61 @@ async fn get_query(
     request: Request<Body>,
 ) -> Result<ApiResponse, ApiError> {
     if let Some(querystring) = params.get("query") {
-        let (query, _) = stam::Query::parse(querystring)?;
-        if let Ok(CONTENT_TYPE_HTML) = negotiate_content_type(
-            &request,
-            &[CONTENT_TYPE_JSON, CONTENT_TYPE_HTML, CONTENT_TYPE_TEXT],
-        ) {
-            storepool.map(&store_id, |store| {
-                let htmlwriter =
-                    HtmlWriter::new(&store, query, params.get("use").map(|s| s.as_str()))
-                        .map_err(|e| ApiError::CustomNotFound(e))?;
-                Ok(ApiResponse::Html(htmlwriter.to_string()))
-            })
-        } else if query.querytype().readonly() {
-            storepool.map(&store_id, |store| match store.query(query) {
-                Err(err) => Err(ApiError::StamError(err)),
-                Ok(queryiter) => {
-                    query_results(queryiter, &request, params.get("use").map(|s| s.as_str()))
-                }
-            })
-        } else {
-            storepool.map_mut(&store_id, |store| match store.query_mut(query) {
-                Err(err) => Err(ApiError::StamError(err)),
-                Ok(queryiter) => {
-                    query_results(queryiter, &request, params.get("use").map(|s| s.as_str()))
-                }
-            })
-        }
+        run_query(
+            store_id.as_str(),
+            querystring,
+            params.get("use").map(|s| s.as_str()),
+            storepool,
+            request.headers(),
+        )
     } else {
         Err(ApiError::MissingArgument("query"))
     }
+}
+
+#[derive(Deserialize, ToSchema)]
+struct QueryForm {
+    /// The ID of the store to query
+    store: String,
+
+    /// A query in STAMQL
+    query: String,
+
+    /// A variable from the above query to return in the result set (without leading ?)
+    r#use: Option<String>,
+}
+
+#[utoipa::path(
+    post,
+    path = "/query",
+    request_body( content_type = "multipart/formdata", content = QueryForm),
+    responses(
+        (status = 200, description = "Query result. Several return types are supported via content negotation, but not all content types can be used for all queries. Most notably, the plain text type only works if the query produces a single item that holds text as result.",content(
+            ([BTreeMap<String,apidocs::StamJson>] = "application/json"),
+            ([apidocs::StamJson] = "application/json"),
+            (String = "text/html"),
+            (String = "text/plain"),
+        )),
+        (status = 406, body = apidocs::ApiError, description = "This is returned if the requested content-type (Accept) could not be delivered for your query.", content_type = "application/json"),
+        (status = 404, body = apidocs::StamError, description = "Return when the query is invalid or another error occurs", content_type = "application/json"),
+        (status = 404, body = apidocs::ApiError, description = "Returned with name `MissingArgument` if you forget the 'query' parameter", content_type = "application/json"),
+        (status = 404, body = apidocs::ApiError, description = "Returned with name `NotFound` if the store does not exist", content_type = "application/json"),
+        (status = 403, body = apidocs::ApiError, description = "Returned with name `PermissionDenied` when permission is denied, for instance when you send a query that edits the data but the store is configured as read-only", content_type = "application/json")
+    )
+)]
+/// Run a query on an annotation store. The query is formulated in STAMQL.
+async fn post_query(
+    storepool: State<Arc<StorePool>>,
+    headers: HeaderMap,
+    Form(queryform): Form<QueryForm>,
+) -> Result<ApiResponse, ApiError> {
+    run_query(
+        queryform.store.as_str(),
+        queryform.query.as_str(),
+        queryform.r#use.as_ref().map(|s| s.as_str()),
+        storepool,
+        &headers,
+    )
 }
 
 #[utoipa::path(
@@ -392,7 +420,7 @@ async fn get_annotation_list(
     request: Request<Body>,
 ) -> Result<ApiResponse, ApiError> {
     storepool.map(&store_id, |store| {
-        match negotiate_content_type(&request, &[CONTENT_TYPE_JSON]) {
+        match negotiate_content_type(request.headers(), &[CONTENT_TYPE_JSON]) {
             Ok(CONTENT_TYPE_JSON) => {
                 //TODO: may be a fairly expensive copy if there are lots of annotations, no pagination either here
                 let annotations: Vec<serde_json::Value> = store
@@ -426,7 +454,7 @@ async fn get_resource_list(
     request: Request<Body>,
 ) -> Result<ApiResponse, ApiError> {
     storepool.map(&store_id, |store| {
-        match negotiate_content_type(&request, &[CONTENT_TYPE_JSON]) {
+        match negotiate_content_type(request.headers(), &[CONTENT_TYPE_JSON]) {
             Ok(CONTENT_TYPE_JSON) => {
                 //TODO: may be a fairly expensive copy if there are lots of resources, no pagination either here
                 let resources: Vec<serde_json::Value> = store
@@ -470,7 +498,7 @@ async fn get_annotation(
         None => Err(ApiError::NotFound("No such annotation")),
         Some(annotation) => {
             match negotiate_content_type(
-                &request,
+                request.headers(),
                 &[CONTENT_TYPE_JSON, CONTENT_TYPE_JSONLD, CONTENT_TYPE_TEXT],
             ) {
                 Ok(CONTENT_TYPE_JSON) => Ok(ApiResponse::RawJson(
@@ -523,7 +551,7 @@ async fn get_resource(
 ) -> Result<ApiResponse, ApiError> {
     storepool.map(&store_id, |store| match store.resource(resource_id) {
         None => Err(ApiError::NotFound("No such resource")),
-        Some(resource) => match negotiate_content_type(&request, &[CONTENT_TYPE_TEXT]) {
+        Some(resource) => match negotiate_content_type(request.headers(), &[CONTENT_TYPE_TEXT]) {
             Ok(CONTENT_TYPE_TEXT) => Ok(ApiResponse::Text(resource.text().to_string())),
             _ => Err(ApiError::NotAcceptable(
                 "Accept headed could not be satisfied (try application/json)",
@@ -562,7 +590,8 @@ async fn get_textselection(
         None => Err(ApiError::NotFound("No such resource")),
         Some(resource) => {
             let textselection = resource.textselection(&offset)?;
-            match negotiate_content_type(&request, &[CONTENT_TYPE_JSON, CONTENT_TYPE_TEXT]) {
+            match negotiate_content_type(request.headers(), &[CONTENT_TYPE_JSON, CONTENT_TYPE_TEXT])
+            {
                 Ok(CONTENT_TYPE_JSON) => Ok(ApiResponse::RawJson(textselection.to_json_string()?)),
                 Ok(CONTENT_TYPE_TEXT) => Ok(ApiResponse::Text(textselection.text().to_string())),
                 _ => Err(ApiError::NotAcceptable(
@@ -574,10 +603,10 @@ async fn get_textselection(
 }
 
 fn negotiate_content_type(
-    request: &Request<Body>,
+    headers: &HeaderMap<HeaderValue>,
     offer_types: &[&'static str],
 ) -> Result<&'static str, ApiError> {
-    if let Some(accept_types) = request.headers().get(axum::http::header::ACCEPT) {
+    if let Some(accept_types) = headers.get(axum::http::header::ACCEPT) {
         let mut match_accept_index = None;
         let mut matching_offer = None;
         for (i, accept_type) in accept_types
@@ -609,12 +638,42 @@ fn negotiate_content_type(
     }
 }
 
+fn run_query(
+    store_id: &str,
+    querystring: &str,
+    use_variable: Option<&str>,
+    storepool: State<Arc<StorePool>>,
+    headers: &HeaderMap<HeaderValue>,
+) -> Result<ApiResponse, ApiError> {
+    let (query, _) = stam::Query::parse(querystring)?;
+    if let Ok(CONTENT_TYPE_HTML) = negotiate_content_type(
+        headers,
+        &[CONTENT_TYPE_JSON, CONTENT_TYPE_HTML, CONTENT_TYPE_TEXT],
+    ) {
+        storepool.map(&store_id, |store| {
+            let htmlwriter = HtmlWriter::new(&store, query, use_variable)
+                .map_err(|e| ApiError::CustomNotFound(e))?;
+            Ok(ApiResponse::Html(htmlwriter.to_string()))
+        })
+    } else if query.querytype().readonly() {
+        storepool.map(&store_id, |store| match store.query(query) {
+            Err(err) => Err(ApiError::StamError(err)),
+            Ok(queryiter) => query_results(queryiter, headers, use_variable),
+        })
+    } else {
+        storepool.map_mut(&store_id, |store| match store.query_mut(query) {
+            Err(err) => Err(ApiError::StamError(err)),
+            Ok(queryiter) => query_results(queryiter, headers, use_variable),
+        })
+    }
+}
+
 fn query_results(
     queryiter: QueryIter,
-    request: &Request<Body>,
+    headers: &HeaderMap<HeaderValue>,
     use_variable: Option<&str>,
 ) -> Result<ApiResponse, ApiError> {
-    match negotiate_content_type(request, &[CONTENT_TYPE_JSON, CONTENT_TYPE_TEXT]) {
+    match negotiate_content_type(headers, &[CONTENT_TYPE_JSON, CONTENT_TYPE_TEXT]) {
         Ok(CONTENT_TYPE_JSON) => {
             if let Some(use_variable) = use_variable {
                 //output only one variable
