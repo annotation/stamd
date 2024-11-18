@@ -1,10 +1,9 @@
 use axum::{
     body::Body, extract::Path, extract::Query, extract::State, http::HeaderMap, http::HeaderValue,
-    http::Request, routing::get, routing::post, Form, Router, ServiceExt,
+    http::Request, routing::get, routing::post, Form, Router,
 };
 use clap::Parser;
 use serde::Deserialize;
-use serde_json::value::Value;
 use stam::FindText;
 use stam::WebAnnoConfig;
 use std::collections::BTreeMap;
@@ -12,8 +11,6 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::signal;
-use tower::layer::Layer;
-use tower_http::normalize_path::NormalizePathLayer;
 use tower_http::trace::TraceLayer;
 use tracing::{debug, error};
 
