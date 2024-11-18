@@ -101,6 +101,12 @@ struct Args {
         help = "(for Web Annotation output only) Add a namespace to the JSON-LD context, syntax is: namespace: uri"
     )]
     namespaces: Vec<String>,
+
+    #[arg(
+        long = "no-extra-target",
+        help = "(for Web Annotation output only) By default, stamd adds an extra target to Web Annotations with a TextPositionSelector, this is a URL that can be resolved directly by stamd. If you don't want this behaviour, set this."
+    )]
+    no_extra_target: bool,
 }
 
 #[derive(OpenApi)]
@@ -152,6 +158,7 @@ async fn main() {
         args.extension,
         args.readonly,
         args.unload_time,
+        args.no_extra_target,
         webannoconfig,
         Config::default(),
     )

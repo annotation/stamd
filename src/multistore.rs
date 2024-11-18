@@ -23,6 +23,7 @@ pub struct StorePool {
     baseurl: String,
     extension: String,
     readonly: bool,
+    no_extra_target: bool, //for webannotations
     unload_time: u64,
     stores: RwLock<HashMap<String, Arc<RwLock<AnnotationStore>>>>, //the extra Arc allows us to drop the lock earlier
     states: RwLock<HashMap<String, StoreState>>,
@@ -41,6 +42,7 @@ impl StorePool {
         extension: impl Into<String>,
         readonly: bool,
         unload_time: u64,
+        no_extra_target: bool,
         webannoconfig: WebAnnoConfig,
         config: Config,
     ) -> Result<Self, &'static str> {
@@ -57,6 +59,7 @@ impl StorePool {
                 webannoconfigs: HashMap::new().into(),
                 webannoconfig,
                 unload_time,
+                no_extra_target,
                 readonly,
                 config,
             })
@@ -184,7 +187,9 @@ impl StorePool {
             } else {
                 format!("{}/{}/datasets/", self.baseurl(), id)
             };
-
+            if !self.no_extra_target {
+                webannoconfig.extra_target_template = Some("{resource}/{begin}/{end}".into());
+            }
             webannoconfigs.insert(id.to_string(), webannoconfig);
         }
     }
