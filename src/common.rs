@@ -65,6 +65,8 @@ impl IntoResponse for ApiResponse {
 </head>
 <body>
 <h1>stamd</h1>
+<p>See <a href=\"/swagger-ui\">OpenAPI specification</a></p>
+<hr/>
 <form method=\"post\" action=\"/query\">
 <label>Store:</label> <select name=\"store\">{}</select><br/>
 <label>Query (<a href=\"https://github.com/annotation/stam/tree/master/extensions/stam-query\">STAMQL</a>):</label><br/><textarea name=\"query\" style=\"width: 60%; min-height: 360px;\" spellcheck=\"false\"></textarea><br/>

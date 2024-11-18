@@ -60,6 +60,7 @@ a more formal and complete specification.
 * `GET /swagger-ui`       - Serves an interactive webinterface explaining the RESTful API specification.
 * `GET /api-doc/openapi.json`   - Machine parseable OpenAPI specification.
 
+
 ## Installation
 
 ### From source
@@ -71,3 +72,12 @@ $ cargo install stamd
 ## Usage
 
 Run `stamd` to start the webservice, see `stamd --help` for various parameters.
+
+## Security
+
+This webservice is **NOT** meant to be directly opened up to the internet, as
+it does not provide any authentication mechanism and can be easily abused as a
+file hosting service. It is intended as a backend service for dedicated
+frontends to communicate with. Make sure it is behind a firewall or on a
+private network segment. If you do expose it to the internet, make sure to
+launch stamd with the `--readonly` parameter.

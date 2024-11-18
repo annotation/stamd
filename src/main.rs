@@ -376,7 +376,7 @@ struct QueryForm {
 #[utoipa::path(
     post,
     path = "/query",
-    request_body( content_type = "multipart/formdata", content = QueryForm),
+    request_body( content_type = "multipart/form-data", content = QueryForm),
     responses(
         (status = 200, description = "Query result. Several return types are supported via content negotation, but not all content types can be used for all queries. Most notably, the plain text type only works if the query produces a single item that holds text as result.",content(
             ([BTreeMap<String,apidocs::StamJson>] = "application/json"),
