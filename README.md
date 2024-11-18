@@ -47,7 +47,7 @@ is requested via regular HTTP *content negotation*:
 The following endpoints are available, consult the `/swagger-ui/` endpoint for
 a more formal and complete specification.
 
-* `GET /`                  - Returns an simple JSON list of all available annotation stores in this server.
+* `GET /`                  - Returns either a simple JSON list of all available annotation stores in this server, or a crude HTML form that allows you to interactively query any of the available stores.
 * `GET /{store_id}/?query=`   - Runs a STAMQL query on an annotation store. This is the go-to endpoint that provides 90% of all functionality.
 * `POST /query`               - Same as above but takes all paramters as form-encoded data via a POST request
 * `POST /{store_id}`            - Create a new annotation store

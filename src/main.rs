@@ -253,29 +253,33 @@ async fn shutdown_signal(storepool: Arc<StorePool>) {
         (status = 200, body = [String], description = "Returns a simple list of all available annotation stores"),
     )
 )]
-/// Runs all available annotation stores.
+/// Runs all available annotation stores or provide a very simple webinterface
 async fn list_stores(
     storepool: State<Arc<StorePool>>,
     request: Request<Body>,
 ) -> Result<ApiResponse, ApiError> {
-    if let Ok(CONTENT_TYPE_JSON) = negotiate_content_type(request.headers(), &[CONTENT_TYPE_JSON]) {
-        let extension = format!(".{}", storepool.extension());
-        let mut store_ids: Vec<serde_json::Value> = Vec::new();
-        for entry in std::fs::read_dir(storepool.basedir())
-            .map_err(|_| ApiError::InternalError("Unable to read base directory"))?
-        {
-            let entry = entry.unwrap();
-            if let Some(filename) = entry.file_name().to_str() {
-                if let Some(pos) = filename.find(&extension) {
-                    store_ids.push(filename[0..pos].into());
-                }
+    let extension = format!(".{}", storepool.extension());
+    let mut store_ids: Vec<String> = Vec::new();
+    for entry in std::fs::read_dir(storepool.basedir())
+        .map_err(|_| ApiError::InternalError("Unable to read base directory"))?
+    {
+        let entry = entry.unwrap();
+        if let Some(filename) = entry.file_name().to_str() {
+            if let Some(pos) = filename.find(&extension) {
+                store_ids.push(filename[0..pos].to_string());
             }
         }
-        Ok(ApiResponse::JsonList(store_ids))
-    } else {
-        Err(ApiError::NotAcceptable(
+    }
+    match negotiate_content_type(request.headers(), &[CONTENT_TYPE_HTML, CONTENT_TYPE_JSON]) {
+        Ok(CONTENT_TYPE_HTML) => Ok(ApiResponse::QueryUI(store_ids)),
+        Ok(CONTENT_TYPE_JSON) => {
+            let store_ids: Vec<serde_json::Value> =
+                store_ids.into_iter().map(|s| s.into()).collect();
+            Ok(ApiResponse::JsonList(store_ids))
+        }
+        _ => Err(ApiError::NotAcceptable(
             "Accept headed could not be satisfied (try application/json)",
-        ))
+        )),
     }
 }
 

@@ -19,6 +19,7 @@ pub enum ApiResponse {
     RawJsonLd(String),
     JsonList(Vec<Value>),
     JsonMap(Vec<BTreeMap<String, Value>>),
+    QueryUI(Vec<String>), //takes a list of store IDs
 }
 
 impl IntoResponse for ApiResponse {
@@ -51,6 +52,29 @@ impl IntoResponse for ApiResponse {
                 .into_response(),
             Self::JsonList(data) => (StatusCode::OK, Json(data)).into_response(),
             Self::JsonMap(data) => (StatusCode::OK, Json(data)).into_response(),
+            Self::QueryUI(store_ids) => {
+                let options: Vec<_> = store_ids
+                    .into_iter()
+                    .map(|s| format!("<option value=\"{}\">{}</option>", s, s))
+                    .collect();
+                let html: String = format!(
+                    "<html>
+<head>
+    <meta content=\"text/html; charset=utf8\" http-equiv=\"content-type\">
+    <title>stamd</title>
+</head>
+<body>
+<h1>stamd</h1>
+<form method=\"post\" action=\"/query\">
+<label>Store:</label> <select name=\"store\">{}</select><br/>
+<label>Query (<a href=\"https://github.com/annotation/stam/tree/master/extensions/stam-query\">STAMQL</a>):</label><br/><textarea name=\"query\" style=\"width: 60%; min-height: 360px;\" spellcheck=\"false\"></textarea><br/>
+<input type=\"submit\" />
+</form>
+</body></html>",
+                    options.join("")
+                );
+                (StatusCode::OK, Html(html)).into_response()
+            }
         }
     }
 }
