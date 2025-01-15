@@ -185,18 +185,21 @@ async fn main() {
 
     let app = Router::new()
         .route("/", get(list_stores))
-        .route("/:store_id", post(create_store))
+        .route("/{store_id}", post(create_store))
         .route("/query", post(post_query))
-        .route("/:store_id", get(get_query))
-        .route("/:store_id/annotations/:annotation_id", get(get_annotation))
-        .route("/:store_id/annotations", get(get_annotation_list))
+        .route("/{store_id}", get(get_query))
         .route(
-            "/:store_id/resources/:resource_id/:begin/:end",
+            "/{store_id/annotations/{annotation_id}",
+            get(get_annotation),
+        )
+        .route("/{store_id/annotations", get(get_annotation_list))
+        .route(
+            "/{store_id/resources/{resource_id}/{begin}/{end}",
             get(get_textselection),
         )
-        .route("/:store_id/resources", get(get_resource_list))
-        .route("/:store_id/resources/:resource_id", get(get_resource))
-        .route("/:store_id/resources/:resource_id", post(create_resource))
+        .route("/{store_id}/resources", get(get_resource_list))
+        .route("/{store_id}/resources/{resource_id}", get(get_resource))
+        .route("/{store_id}/resources/{resource_id}", post(create_resource))
         .merge(SwaggerUi::new("/swagger-ui").url("/api-doc/openapi.json", ApiDoc::openapi()))
         .layer(TraceLayer::new_for_http())
         .with_state(storepool.clone());

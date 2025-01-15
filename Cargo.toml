@@ -13,7 +13,7 @@ repository = "https://github.com/annotation/stamd"
 keywords = [ "text-processing", "annotation", "linguistics", "standoff", "nlp"]
 
 [dependencies]
-axum = "0.7.7"
+axum = "0.8.1"
 clap = { version = "4.5.20", features = ["derive"] }
 serde = { version = "1.0.215", features = ["derive"] }
 serde_json = "1.0.133"
@@ -24,5 +24,5 @@ tower = "0.5.1"
 tower-http = { version = "0.6.1", features= ["trace", "normalize-path"] }
 tracing = "0.1.40"
 tracing-subscriber = "0.3.18"
-utoipa = { version = "5.2.0", features = ["axum_extras"] }
-utoipa-swagger-ui = { version = "8.0.3", features = ["axum", "vendored"] }
+utoipa = { version = "5.3.1", features = ["axum_extras"] }
+utoipa-swagger-ui = { version = "8.1.1", features = ["axum", "vendored"] }
