@@ -189,12 +189,12 @@ async fn main() {
         .route("/query", post(post_query))
         .route("/{store_id}", get(get_query))
         .route(
-            "/{store_id/annotations/{annotation_id}",
+            "/{store_id}/annotations/{annotation_id}",
             get(get_annotation),
         )
-        .route("/{store_id/annotations", get(get_annotation_list))
+        .route("/{store_id}/annotations", get(get_annotation_list))
         .route(
-            "/{store_id/resources/{resource_id}/{begin}/{end}",
+            "/{store_id}/resources/{resource_id}/{begin}/{end}",
             get(get_textselection),
         )
         .route("/{store_id}/resources", get(get_resource_list))
