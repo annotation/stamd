@@ -33,7 +33,7 @@ impl IntoResponse for ApiResponse {
                 [(
                     header::CONTENT_TYPE,
                     HeaderValue::from_static(
-                        "application/ld+json; profile=\"http://www.w3.org/ns/anno.jsonld\"",
+                        "application/ld+json", //; profile=\"http://www.w3.org/ns/anno.jsonld\"",
                     ),
                 )],
                 data,
@@ -44,7 +44,7 @@ impl IntoResponse for ApiResponse {
                 [(
                     header::CONTENT_TYPE,
                     HeaderValue::from_static(
-                        "application/ld+json; profile=\"http://www.w3.org/ns/anno.jsonld\"",
+                        "application/ld+json", //; profile=\"http://www.w3.org/ns/anno.jsonld\"",
                     ),
                 )],
                 data,

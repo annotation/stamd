@@ -1,0 +1,81 @@
+### Get a slice of text resource (plain text)
+GET http://127.0.0.1:8080/hoof001hwva/resources/hoof001hwva02.txt/14/100
+Accept: text/plain
+
+### Get a slice of a text resource (json)
+GET http://127.0.0.1:8080/hoof001hwva/resources/hoof001hwva02.txt/14/100
+Accept: application/json
+
+### List available resources in a store
+GET http://127.0.0.1:8080/hoof001hwva/resources
+Accept: application/json
+
+### List available stores
+GET http://127.0.0.1:8080/
+Accept: application/json
+
+### List all(!) annotations in a store
+GET http://127.0.0.1:8080/hoof001hwva/annotations
+Accept: application/json
+
+### Get one particular annotation (STAM JSON)
+GET http://127.0.0.1:8080/hoof001hwva/annotations/hoof001hwva03_01_0032
+Accept: application/json
+
+### Get one particular annotation (plain text)
+GET http://127.0.0.1:8080/hoof001hwva/annotations/hoof001hwva03_01_0032
+Accept: text/plain
+
+### Get one particular annotation (as Web annotation)
+GET http://127.0.0.1:8080/hoof001hwva/annotations/hoof001hwva03_01_0032
+Accept: application/ld+json
+
+### Simple query via STAMQL (HTTP GET)
+GET http://127.0.0.1:8080/hoof001hwva?query=SELECT ANNOTATION ?a WHERE ID hoof001hwva03_01_0032;
+Accept: application/json
+
+### Slightly more complex query via STAMQL (HTTP POST)
+POST http://127.0.0.1:8080/query
+Content-Type: application/x-www-form-urlencoded 
+
+store=hoof001hwva&query=
+SELECT ANNOTATION ?a WHERE
+    DATA "http://www.w3.org/ns/anno/" "type" = "Letter";
+    DATA "brieven-van-hooft-metadata" "birthyear" < 1600;
+
+### Complex query query, return as HTML result
+### select a specific letter (via annotation) and highlight PoS and adverbs
+POST http://127.0.0.1:8080/query
+Content-Type: application/x-www-form-urlencoded 
+Accept: text/html
+
+store=hoof001hwva&query=
+SELECT ANNOTATION ?letter WHERE
+    DATA "brieven-van-hooft-metadata" "dbnl_id" = "hoof001hwva02_01_0032"; 
+    {
+        SELECT ANNOTATION ?adj WHERE
+            RELATION ?letter EMBEDS;
+            DATA "gustave-pos" "head" = "ADJ"; 
+        |
+        SELECT ANNOTATION ?adv WHERE
+            RELATION ?letter EMBEDS;
+            DATA "gustave-pos" "head" = "BW";
+        }
+    }
+
+
+### Complex query: search for letters with a specific text 
+### return as HTML
+POST http://127.0.0.1:8080/query
+Content-Type: application/x-www-form-urlencoded 
+Accept: text/html
+
+store=hoof001hwva&query=
+SELECT ANNOTATION ?letter WHERE
+    DATA "http://www.w3.org/ns/anno/" "type" = "Letter";
+    {
+    SELECT ANNOTATION ?match WHERE
+        RELATION ?letter EMBEDS;
+        DATA "https://w3id.org/folia/v2/" "elementtype" = "w";
+        TEXT "Blaricom";
+    }
