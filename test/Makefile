@@ -2,9 +2,9 @@
 # https://github.com/knaw-huc/brieven-van-hooft-pipeline
 # for notes on the data and its licensing
 
-.PHONY: test
+.PHONY: testrun
 
-test: docroot/hoof001hwva.annotationstore.stam.json
+testrun: docroot/hoof001hwva.annotationstore.stam.json
 	cargo run --release -- --debug --unload-time 120 --ns "brieven-van-hooft-metadata:http://127.0.0.1:8080/hoof001hwva/datasets/brieven-van-hooft-metadata/" -d docroot -e annotationstore.stam.json
 
 docroot:
