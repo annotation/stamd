@@ -79,3 +79,28 @@ SELECT ANNOTATION ?letter WHERE
         DATA "https://w3id.org/folia/v2/" "elementtype" = "w";
         TEXT "Blaricom";
     }
+
+### Complex query: return all annotations marked as 'greeting' 
+### return as JSON
+POST http://127.0.0.1:8080/query
+Content-Type: application/x-www-form-urlencoded 
+Accept: application/json
+
+store=hoof001hwva&query=
+SELECT ANNOTATION ?greeting WHERE                                                                                            
+      DATA "brieven-van-hooft-categories" "part" = "greeting";
+
+### Complex query: return all letters with words that match certain lemmas
+POST http://127.0.0.1:8080/query
+Content-Type: application/x-www-form-urlencoded 
+Accept: application/json
+
+store=hoof001hwva&query=
+SELECT ANNOTATION ?letter WHERE
+    DATA "http://www.w3.org/ns/anno/" "type" = "Letter";
+    {
+      SELECT ANNOTATION ?match WHERE
+        RELATION ?letter EMBEDS;
+        @VALUETAG DATA "gustave-lem" "class" = "vreemd|raar|merkwaardig";
+    }
+
