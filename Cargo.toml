@@ -1,6 +1,6 @@
 [package]
 name = "stamd"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 authors = ["Maarten van Gompel <proycon@anaproy.nl>"]
 description = "Webservice for working with stand-off annotations on text (STAM)"
@@ -13,16 +13,16 @@ repository = "https://github.com/annotation/stamd"
 keywords = [ "text-processing", "annotation", "linguistics", "standoff", "nlp"]
 
 [dependencies]
-axum = "0.8.1"
-clap = { version = "4.5.20", features = ["derive"] }
-serde = { version = "1.0.215", features = ["derive"] }
-serde_json = "1.0.133"
-stam = "0.16.5"
-stam-tools = "0.9.2"
+axum = "0.8.4"
+clap = { version = "4.5.41", features = ["derive"] }
+serde = { version = "1.0.219", features = ["derive"] }
+serde_json = "1.0.140"
+stam = "0.17.0"
+stam-tools = "0.11.0"
 tokio = { version = "1.41.0", features = ["macros","rt-multi-thread","signal"] }
-tower = "0.5.1"
-tower-http = { version = "0.6.1", features= ["trace", "normalize-path"] }
-tracing = "0.1.40"
-tracing-subscriber = "0.3.18"
-utoipa = { version = "5.3.1", features = ["axum_extras"] }
-utoipa-swagger-ui = { version = "8.1.1", features = ["axum", "vendored"] }
+tower = "0.5.2"
+tower-http = { version = "0.6.6", features= ["trace", "normalize-path"] }
+tracing = "0.1.41"
+tracing-subscriber = "0.3.19"
+utoipa = { version = "5.4.0", features = ["axum_extras"] }
+utoipa-swagger-ui = { version = "9.0.2", features = ["axum", "vendored"] }
